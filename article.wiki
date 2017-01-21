@@ -470,7 +470,7 @@ function generateFingerprint(){
 </pre>
 
 
-'''JavaScript code to call the REST service and store the token on client side'''
+'''JavaScript code to call the REST services and store the JWT token on client side'''
 
 <pre>
 /* Handle request for JWT token and local storage*/
