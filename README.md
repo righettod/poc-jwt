@@ -23,6 +23,10 @@ A web page propose the creation and the validation of the token.
 All classes are full documented.
 
 The project was developed with JAX-RS + Maven under IntelliJ IDEA.
+
+# Build status
+
+[![Build Status](https://travis-ci.org/righettod/poc-jwt.svg?branch=master)](https://travis-ci.org/righettod/poc-jwt)
  
 # Build or Run
 
