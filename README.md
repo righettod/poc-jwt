@@ -15,8 +15,8 @@ It's a research in order to create an article on OWASP Wiki.
  
 This POC is a web application with 2 REST services:
 
- * One to [create](src/main/java/eu.righettod/pocjwt/service/TokenServices.java) the JWT token and [cipher](src/main/java/eu.righettod/pocjwt/crypto/TokenCipher.java) it,
- * One to [validate](src/main/java/eu.righettod/pocjwt/service/TokenServices.java) it.
+ * One to [create](src/main/java/eu/righettod/pocjwt/service/TokenServices.java) the JWT token and [cipher](src/main/java/eu/righettod/pocjwt/crypto/TokenCipher.java) it,
+ * One to [validate](src/main/java/eu/righettod/pocjwt/service/TokenServices.java) it.
  
 A web page propose the creation and the validation of the token.
 
