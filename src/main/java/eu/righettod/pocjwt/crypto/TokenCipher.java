@@ -170,7 +170,7 @@ public class TokenCipher {
 
     /**
      * Read GCM NONCE and GCM AAD from the DB
-     * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX for which we must read the NONCE
+     * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX for which we must read the NONCE and AAD
      * @return A dict containing the NONCE and AAD if they exists for the specified token
      * @throws Exception If any issue occur during communication with DB
      */

@@ -36,10 +36,10 @@ public class TokenServices {
     /** Logger */
     private static final Logger LOG = LoggerFactory.getLogger(TokenServices.class);
 
-    /**Accessor for HMAC and Ciphering keys - Block serialization and storage as String in JVM memory*/
+    /**Accessor for HMAC  - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyHMAC = null;
 
-    /**Accessor for HMAC and Ciphering keys - Block serialization and storage as String in JVM memory*/
+    /**Accessor for Ciphering keys - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyCiphering = null;
 
     /**Accessor for Issuer ID - Block serialization*/
@@ -125,7 +125,7 @@ public class TokenServices {
 
 
     /**
-     * Validate the legitimacy of a call with a JWT.
+     * Validate the legitimacy of a call with a JWT
      * Normally this code is not a service but it's included in the application as shared function and used by all business services to validate the token
      * before allowing any business processing
      * @param request Incoming HTTP request
