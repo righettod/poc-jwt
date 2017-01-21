@@ -18,7 +18,10 @@ This POC is a web application with 2 REST services:
  * One to [create](src/main/java/eu/righettod/pocjwt/service/TokenServices.java#L80) the JWT token and [cipher](src/main/java/eu/righettod/pocjwt/crypto/TokenCipher.java#L64) it,
  * One to [validate](src/main/java/eu/righettod/pocjwt/service/TokenServices.java#L139) it.
  
-A web page propose the creation and the validation of the token.
+
+A web page propose the creation and the validation of the token:
+
+![Demo](demo.gif)
 
 All classes are full documented.
 
