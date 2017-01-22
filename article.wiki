@@ -21,7 +21,7 @@ JWT token are not automatically sent by the browser like the Cookies but they ar
 
 This article have for objective to provide an implementation proposal in order to prevent the issues above, all using JWT official [https://jwt.io/#libraries API].
 
-To achieve these goals we will apply the following action:
+To achieve these goals, we will apply the following actions:
 
 * Add context in the token about the client browser,
 * Cipher the token using an algorithm supporting authenticated encryption.
@@ -35,7 +35,8 @@ Running code is located [https://github.com/righettod/poc-jwt here].
 '''Database structure'''
 
 <pre>
-create table if not exists nonce(jwt_token_digest varchar(255) primary key, gcm_nonce varchar(255) not null unique, gcm_aad varchar(255) not null unique);
+create table if not exists nonce(jwt_token_digest varchar(255) primary key,
+gcm_nonce varchar(255) not null unique, gcm_aad varchar(255) not null unique);
 create index if not exists idx_nonce on nonce(gcm_nonce);
 </pre>
 
@@ -46,7 +47,7 @@ create index if not exists idx_nonce on nonce(gcm_nonce);
 /**
  * Handle ciphering and deciphering of the token using AES-GCM.
  * Use a DB in order to link a GCM NONCE to a ciphered message and ensure that a NONCE is never reused
- * and also allow use of several application node in load balancing.
+ * and also allow use of several application nodes in load balancing.
  */
 public class TokenCipher {
 
@@ -67,18 +68,19 @@ public class TokenCipher {
      * Cipher a JWT
      * @param jwt Token to cipher
      * @param key Ciphering key
-     * @return the ciphered version of the token encoded in HEX
+     * @return The ciphered version of the token encoded in HEX
      * @throws Exception If any issue occur during token ciphering operation
      */
     public String cipherToken(String jwt, byte[] key) throws Exception {
         //Verify parameters
-        if(jwt == null || jwt.isEmpty() || key.length == 0){
+        if(jwt == null || jwt.isEmpty() || key == null || key.length == 0){
             throw new IllegalArgumentException("Both parameters must be specified !");
         }
 
         //Generate a NONCE
         //NOTE: As in the DB, the column to store the NONCE is flagged UNIQUE then the insert will fail
-        //if the NONCE already exists, normally as we use the Java Secure Random implementation it will never happen.
+        //if the NONCE already exists, normally as we use the Java Secure Random implementation
+        //it will never happen.
         final byte[] nonce = new byte[GCM_NONCE_LENGTH];
         secRandom.nextBytes(nonce);
 
@@ -118,7 +120,7 @@ public class TokenCipher {
      */
     public String decipherToken(String jwtInHex, byte[] key) throws Exception{
         //Verify parameters
-        if(jwtInHex == null || jwtInHex.isEmpty() || key.length == 0){
+        if(jwtInHex == null || jwtInHex.isEmpty() || key == null || key.length == 0){
             throw new IllegalArgumentException("Both parameters must be specified !");
         }
 
@@ -219,10 +221,10 @@ public class TokenServices {
     /** Logger */
     private static final Logger LOG = LoggerFactory.getLogger(TokenServices.class);
 
-    /**Accessor for HMAC - Block serialization and storage as String in JVM memory*/
+    /**Accessor for HMAC key - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyHMAC = null;
 
-    /**Accessor for Ciphering keys - Block serialization and storage as String in JVM memory*/
+    /**Accessor for Ciphering key - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyCiphering = null;
 
     /**Accessor for Issuer ID - Block serialization*/
@@ -240,7 +242,7 @@ public class TokenServices {
         this.keyHMAC = Files.readAllBytes(Paths.get("src","main","conf","key-hmac.txt"));
         this.keyCiphering = Files.readAllBytes(Paths.get("src","main","conf","key-ciphering.txt"));
 
-        //Load issuer ID from configuration text files
+        //Load issuer ID from configuration text file
         this.issuerID = Files.readAllLines(Paths.get("src","main","conf","issuer-id.txt")).get(0);
 
         //Init token ciphering handler
@@ -321,7 +323,6 @@ public class TokenServices {
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validate(@Context HttpServletRequest request, @FormParam("browserFingerprintDigest") String browserFingerprintDigest){
-        //As it's an authentication simulation we explicitly ignore the password here...
         JSONObject jsonObject = new JSONObject();
         Response r;
         try{
@@ -355,7 +356,7 @@ public class TokenServices {
         }
         catch (JWTVerificationException e) {
             LOG.warn("Verification of the token failed", e);
-            //Return a generic error message
+            //Return info that validation failed
             jsonObject.put("status", "Invalid token !");
             r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
         }
@@ -539,13 +540,14 @@ function validateToken(){
 
 = Know issue =
 
-A issue exist in the implementation proposal about the retrieving of the client IP. Indeed, if the header ''X-Forwarded-For'' is present
-then the method ''retrieveClientIP()'' get the client IP from this header according the header expected content.
+An issue exists in this implementation proposal about the retrieving of the client IP. Indeed, if the header ''X-Forwarded-For'' is present
+then the method ''retrieveClientIP()'' will get the client IP from this header according to the header expected content.
 
-The issue occur when the Web Application Firewall append the existing header ''X-Forwarded-For'' of the incoming request instead of overwriting
-the header content with the real network IP of the incoming request.
+The issue occur when the Web Application Firewall append the existing header ''X-Forwarded-For'' of the incoming request (add the client real network IP at the end of the list)
+instead of overwriting the header content with the real network IP of the incoming request.
+In this way, an attacker can add the header ''X-Forwarded-For'' in his request and set an arbitrary IP that will be taken as the client IP by the the method ''retrieveClientIP()''.
 
-If you don't have any Web Application Firewall or Reverse Proxy in front of your application so use directly the IP from the ''HttpServletRequest'' instance.
+If you don't have any Web Application Firewall or Reverse Proxy in front of your application then use directly the IP from the ''HttpServletRequest'' instance.
 
 
 = Main references =

@@ -36,10 +36,10 @@ public class TokenServices {
     /** Logger */
     private static final Logger LOG = LoggerFactory.getLogger(TokenServices.class);
 
-    /**Accessor for HMAC  - Block serialization and storage as String in JVM memory*/
+    /**Accessor for HMAC key - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyHMAC = null;
 
-    /**Accessor for Ciphering keys - Block serialization and storage as String in JVM memory*/
+    /**Accessor for Ciphering key - Block serialization and storage as String in JVM memory*/
     private transient byte[] keyCiphering = null;
 
     /**Accessor for Issuer ID - Block serialization*/
@@ -58,7 +58,7 @@ public class TokenServices {
         this.keyHMAC = Files.readAllBytes(Paths.get("src","main","conf","key-hmac.txt"));
         this.keyCiphering = Files.readAllBytes(Paths.get("src","main","conf","key-ciphering.txt"));
 
-        //Load issuer ID from configuration text files
+        //Load issuer ID from configuration text file
         this.issuerID = Files.readAllLines(Paths.get("src","main","conf","issuer-id.txt")).get(0);
 
         //Init token ciphering handler
@@ -137,7 +137,6 @@ public class TokenServices {
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     public Response validate(@Context HttpServletRequest request, @FormParam("browserFingerprintDigest") String browserFingerprintDigest){
-        //As it's an authentication simulation we explicitly ignore the password here...
         JSONObject jsonObject = new JSONObject();
         Response r;
         try{
@@ -171,7 +170,7 @@ public class TokenServices {
         }
         catch (JWTVerificationException e) {
             LOG.warn("Verification of the token failed", e);
-            //Return a generic error message
+            //Return info that validation failed
             jsonObject.put("status", "Invalid token !");
             r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
         }

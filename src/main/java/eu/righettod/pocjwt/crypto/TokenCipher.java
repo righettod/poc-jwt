@@ -18,7 +18,7 @@ import java.util.Map;
 /**
  * Handle ciphering and deciphering of the token using AES-GCM.
  * Use a DB in order to link a GCM NONCE to a ciphered message and ensure that a NONCE is never reused
- * and also allow use of several application node in load balancing.
+ * and also allow use of several application nodes in load balancing.
  * Here we use H2 with a direct connection but on real app, connection will be managed using a pool in app server.
  *
  * @see "https://www.cryptologie.net/article/361/nonce-disrespecting-adversaries-practical-forgery-attacks-on-gcm-in-tls/"
@@ -58,18 +58,19 @@ public class TokenCipher {
      * Cipher a JWT
      * @param jwt Token to cipher
      * @param key Ciphering key
-     * @return the ciphered version of the token encoded in HEX
+     * @return The ciphered version of the token encoded in HEX
      * @throws Exception If any issue occur during token ciphering operation
      */
     public String cipherToken(String jwt, byte[] key) throws Exception {
         //Verify parameters
-        if(jwt == null || jwt.isEmpty() || key.length == 0){
+        if(jwt == null || jwt.isEmpty() || key == null || key.length == 0){
             throw new IllegalArgumentException("Both parameters must be specified !");
         }
 
         //Generate a NONCE
         //NOTE: As in the DB, the column to store the NONCE is flagged UNIQUE then the insert will fail
-        //if the NONCE already exists, normally as we use the Java Secure Random implementation it will never happen...
+        //if the NONCE already exists, normally as we use the Java Secure Random implementation
+        // it will never happen
         final byte[] nonce = new byte[GCM_NONCE_LENGTH];
         secRandom.nextBytes(nonce);
 
@@ -108,7 +109,7 @@ public class TokenCipher {
      */
     public String decipherToken(String jwtInHex, byte[] key) throws Exception{
         //Verify parameters
-        if(jwtInHex == null || jwtInHex.isEmpty() || key.length == 0){
+        if(jwtInHex == null || jwtInHex.isEmpty() || key == null || key.length == 0){
             throw new IllegalArgumentException("Both parameters must be specified !");
         }
 
