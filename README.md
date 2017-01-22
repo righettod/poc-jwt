@@ -19,7 +19,7 @@ This POC is a web application with 2 REST services:
  * One to [validate](src/main/java/eu/righettod/pocjwt/service/TokenServices.java#L139) it.
  
 
-A web page propose the creation and the validation of the token:
+A web page propose the creation and the validation of the token, see animated GIF image below:
 
 ![Demo](demo.gif)
 
