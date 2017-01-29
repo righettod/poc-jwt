@@ -251,7 +251,7 @@ This attack occur when a attacker access to a token (or a set of tokens) and ext
 
 A way to protect, is to cipher the token using for example a symetric algorithm. 
 
-It's also important to protect the ciphered data against attack like [[Testing_for_Padding_Oracle_(OTG-CRYPST-002)|Padding Oracle] or any other attack using cryptanalysis.
+It's also important to protect the ciphered data against attack like [[Testing_for_Padding_Oracle_(OTG-CRYPST-002)|Padding Oracle]] or any other attack using cryptanalysis.
 
 In order to achieve all these goals, the algorithm ''AES-GCM'' can be used in conjunction with ''Additional Authentication Data (AAD)'' feature. 
 
