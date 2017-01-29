@@ -1,47 +1,275 @@
 Last revision (mm/dd/yy): '''{{REVISIONMONTH}}/{{REVISIONDAY}}/{{REVISIONYEAR}}'''
 
+
 = Introduction  =
 
-We saw many application use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
+Many application use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
 
 From ''https://jwt.io/introduction'':
 
 ''JSON Web Token (JWT) is an open standard (RFC 7519) that defines a compact and self-contained way for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret (with the HMAC algorithm) or a public/private key pair using RSA.''
 
-JWT token are not automatically sent by the browser like the Cookies but they are exposed to issues like the following:
-
-* Token replay from another location (attacker computer) after stealing,
-* Information disclosure by the token (ex: security roles),
-* '''None''' algorithm issue:
-** https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
-* Token storage on client side,
-* Alteration of the ciphered token in order to perform cryptanalysis.
 
 = Objective =
 
-This article have for objective to provide an implementation proposal in order to prevent the issues above, all using JWT official [https://jwt.io/#libraries API].
+This article have for objective to provide several tips in a form of a cheats sheet, for Java technology, in order to prevent common security issues meet when using JWT.
 
-To achieve these goals, we will apply the following actions:
+About the code samples provided in tips, a global java project sample has been created in order to show the creation and the validatin of a token in a secure way.
 
-* Add context in the token about the client browser,
-* Cipher the token using an algorithm supporting authenticated encryption.
+This project is available [https://github.com/righettod/poc-jwt here] and it use official [https://jwt.io/#libraries JWT library] with [https://github.com/brix/crypto-js Crypto-JS library].
 
-= Implementation =
+In the rest of the article, the term '''token''' refer to the '''JSON Web Tokens''' (JWT).
 
-Running code is located [https://github.com/righettod/poc-jwt here].
 
-== Server side ==
+= Issues =
 
-'''Database structure'''
+== NONE hashing algorithm ==
+
+=== Symptom ===
+
+This attack, described [https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/ here] occur when a attacker alter the token and change the hashing algorithm to indicate, through, the ''none'' keyword, that the integrity of the token has already been verified. As explained in the link above ''some libraries treated tokens signed with the none algorithm as a valid token with a verified signature'', so an attacker can alter the token claims and tkey will be trusted by the application.
+
+=== How to prevent ===
+
+First, use a JWT library that is not exposed to this vulnerability.
+
+Last, during token validation, explicitly request that the expected algorithm was used.
+
+=== Implementation example ===
 
 <pre>
-create table if not exists nonce(jwt_token_digest varchar(255) primary key,
-gcm_nonce varchar(255) not null unique, gcm_aad varchar(255) not null unique);
+// HMAC key - Block serialization and storage as String in JVM memory
+private transient byte[] keyHMAC = ...;
+
+...
+
+//Create a verification context for the token requesting explicitly the use of the HMAC-256 hashing algorithm
+JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC)).build();
+
+//Verify the token, if the verification fail then a exception is throwed
+DecodedJWT decodedToken = verifier.verify(token);
+</pre>
+
+
+== Token sidejacking ==
+
+=== Symptom ===
+
+This attack occur when a token has been intercepted/stolen by a attacker and this one use it to gain access to the system using targeted user identity.
+
+=== How to prevent ===
+
+A way to protect, is to add "user context" in the token. User context here can be composed by the following information:
+
+* Browser unique fingerprint.
+* IP address.
+
+During token validation, if the received token do not contains the rights context so, it is replayed and then it must be rejected.
+
+=== Implementation example ===
+
+==== Client side: Generate a browser unique fingerprint ====
+
+JavaScript code to generate the browser fingerprint.
+
+<pre>
+/* Generate a fingerprint string for the browser */
+function generateFingerprint(){
+    //Generate a string based on "stable" information taken from the browser
+    //We call here "stable information", information that normally don't change during the user
+    //browse the application just after authentication
+    var fingerprint = [];
+
+    //Take plugins
+    for(var i = 0; i < navigator.plugins.length; i++){
+       fingerprint.push(navigator.plugins[i].name);
+       fingerprint.push(navigator.plugins[i].filename);
+       fingerprint.push(navigator.plugins[i].description);
+       fingerprint.push(navigator.plugins[i].version);
+    }
+
+    //Take User Agent
+    fingerprint.push(navigator.userAgent);
+
+    //Take Screen resolution
+    fingerprint.push(screen.availHeight);
+    fingerprint.push(screen.availWidth);
+    fingerprint.push(screen.colorDepth);
+    fingerprint.push(screen.height);
+    fingerprint.push(screen.pixelDepth);
+    fingerprint.push(screen.width);
+
+    //Take Graphical card info
+    //See http://output.jsbin.com/ovekor/3/
+    try {
+        //Add a Canvas element if the body do not contains one
+        if ( $("#glcanvas").length == 0 ){
+            $(document.body).append("<canvas id='glcanvas'></canvas>");
+        }
+        //Get ref on Canvas
+        var canvas = document.getElementById("glcanvas");
+        //Retrieve Canvas properties
+	    gl = canvas.getContext("experimental-webgl");
+	    gl.viewportWidth = canvas.width;
+	    gl.viewportHeight = canvas.height;
+        fingerprint.push(gl.getParameter(gl.VERSION));
+        fingerprint.push(gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+        fingerprint.push(gl.getParameter(gl.VENDOR));
+        fingerprint.push(gl.getParameter(gl.RENDERER));
+        fingerprint.push(gl.getSupportedExtensions().join());
+    } catch (e) {
+        //Get also error because it's will be stable too..
+        fingerprint.push(e);
+    }
+
+    //Last and, in order to made this browser unique, generate a random ID that we will store
+    //in local storage (in order to be persistent after browser close/reopen)
+    //Add this ID because, in Enterprise, most of the time browser have the same configuration
+    var browserUniqueID = localStorage.getItem("browserUniqueID");
+    if (browserUniqueID === null) {
+      localStorage.setItem("browserUniqueID", CryptoJS.lib.WordArray.random(80));
+      browserUniqueID = localStorage.getItem("browserUniqueID");
+    }
+    fingerprint.push(browserUniqueID);
+
+    return fingerprint.join();
+}
+</pre>
+
+
+JavaScript code to generate a hash of the fingerprint that will be sent to the server for each request. 
+A hash is send in order to avoid to send user browser properties on the wire.
+
+<pre>
+//Call the fingerprint dedicated function
+var fingerprint = generateFingerprint();
+//Use CryptoJS library ot generate a hex encoded string of the hash of the fingerprint
+var fingerprintHash = CryptoJS.SHA256(fingerprint);
+</pre>
+
+
+==== Server side: Token creation and validation ====
+
+Code to extract the client IP.
+
+'''Remark:'''
+
+An issue exists in this implementation proposal about the retrieving of the client IP. Indeed, if the header ''X-Forwarded-For'' is present
+then the method ''retrieveClientIP()'' will get the client IP from this header according to the header expected content.
+
+The issue occur when the Web Application Firewall append the existing header ''X-Forwarded-For'' of the incoming request (add the client real network IP at the end of the list)
+instead of overwriting the header content with the real network IP of the incoming request.
+In this way, an attacker can add the header ''X-Forwarded-For'' in his request and set an arbitrary IP that will be taken as the client IP by the the method ''retrieveClientIP()''.
+
+If you don't have any Web Application Firewall or Reverse Proxy in front of your application then use directly the IP from the ''HttpServletRequest'' instance.
+
+<pre>
+/**
+* Return the client IP address
+* @param request Incoming HTTP request
+* @return The client IP address
+* @throws IllegalArgumentException If the IP retrieved is invalid
+* @see "https://en.wikipedia.org/wiki/X-Forwarded-For"
+*/
+private String retrieveClientIP(HttpServletRequest request) throws IllegalArgumentException{
+	String address;
+	//Get IP from X-Forwarded-For header or from the request object directly
+	String ip = request.getHeader("X-Forwarded-For");
+	if(ip != null){
+	    if(ip.contains(",")){
+		ip = ip.split(",")[0];
+	    }
+	    address = ip.trim();
+	}else{
+	    address = request.getRemoteAddr();
+	}
+	//Validate IP format
+	//"InetAddressValidator" came from "commons-validator" API
+	if(!InetAddressValidator.getInstance().isValid(address)){
+	    throw new IllegalArgumentException("Invalid IP address !");
+	}
+
+	return address;
+}
+</pre>
+
+
+Code to create the token after success authentication.
+
+<pre>
+// HMAC key - Block serialization and storage as String in JVM memory
+private transient byte[] keyHMAC = ...;
+
+...
+
+//Create the token with a validity of 15 minutes and client context (IP + Browser fingerprint SHA256 digest HEX encoded) information
+Calendar c = Calendar.getInstance();
+Date now = c.getTime();
+c.add(Calendar.MINUTE, 15);
+Date expirationDate = c.getTime();
+Map<String, Object> headerClaims = new HashMap<>();
+headerClaims.put("typ", "JWT");
+String token = JWT.create().withSubject(login)
+                       .withExpiresAt(expirationDate)
+                       .withIssuer(issuerID)
+                       .withIssuedAt(now)
+                       .withNotBefore(now)
+                       .withClaim("clientIP", retrieveClientIP(request))
+                       .withClaim("browserFingerprintDigest", browserFingerprintDigest)
+                       .withHeader(headerClaims)
+                       .sign(Algorithm.HMAC256(keyHMAC));
+</pre>
+
+
+Code to validate the token.
+
+<pre>
+// HMAC key - Block serialization and storage as String in JVM memory
+private transient byte[] keyHMAC = ...;
+
+...
+
+//Create a verification context for the token
+JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC))
+                               .withIssuer(issuerID)
+                               .withClaim("clientIP", retrieveClientIP(request))
+                               .withClaim("browserFingerprintDigest", browserFingerprintDigest)
+                               .build();
+
+//Verify the token, if the verification fail then a exception is throwed
+DecodedJWT decodedToken = verifier.verify(token);
+</pre>
+
+
+== Token information disclosure ==
+
+=== Symptom ===
+
+This attack occur when a attacker access to a token (or a set of tokens) and extract information stored into it (JWT token information are base64 encoded at the basis) in order to obtains information about the system. Information can be for example the security roles, login format...
+
+=== How to prevent ===
+
+A way to protect, is to cipher the token using for example a symetric algorithm. 
+
+It's also important to protect the ciphered data against attack like [[Testing_for_Padding_Oracle_(OTG-CRYPST-002)|Padding Oracle] or any other attack using cryptanalysis.
+
+In order to achieve all these goals, the algorithm ''AES-GCM'' can be used in conjunction with ''Additional Authentication Data (AAD)'' feature. 
+
+A database can be used to store the ''NONCE'' and the ''AAD'' associated to a token.
+
+=== Implementation example ===
+
+==== Token ciphering ====
+
+Database structure.
+
+<pre>
+create table if not exists nonce(jwt_token_digest varchar(255) primary key, gcm_nonce varchar(255) not null unique, gcm_aad varchar(255) not null unique);
 create index if not exists idx_nonce on nonce(gcm_nonce);
 </pre>
 
 
-'''Ciphering implementation'''
+Code in charge of managing the ciphering.
 
 <pre>
 /**
@@ -208,270 +436,81 @@ public class TokenCipher {
 }
 </pre>
 
+==== Creation / Validation of the token ====
 
-'''REST services (using JAX-RS)''': One to create the JWT token and one to validate it on user further request
+Use of the token ciphering during the creation and the validation of the token.
 
-<pre>
-/**
- * Provides REST stateless services to manage JWT token.
- */
-@Path("/")
-public class TokenServices {
-
-    /** Logger */
-    private static final Logger LOG = LoggerFactory.getLogger(TokenServices.class);
-
-    /**Accessor for HMAC key - Block serialization and storage as String in JVM memory*/
-    private transient byte[] keyHMAC = null;
-
-    /**Accessor for Ciphering key - Block serialization and storage as String in JVM memory*/
-    private transient byte[] keyCiphering = null;
-
-    /**Accessor for Issuer ID - Block serialization*/
-    private transient String issuerID = null;
-
-    /** Handler for token ciphering */
-    private TokenCipher tokenCipher;
-
-    /**
-     * Constructor - Load keys and issuer ID
-     * @throws IOException If any issue occur during keys loading
-     */
-    public TokenServices() throws IOException {
-        //Load keys from configuration text files in order to avoid to store keys as String in JVM memory
-        this.keyHMAC = Files.readAllBytes(Paths.get("src","main","conf","key-hmac.txt"));
-        this.keyCiphering = Files.readAllBytes(Paths.get("src","main","conf","key-ciphering.txt"));
-
-        //Load issuer ID from configuration text file
-        this.issuerID = Files.readAllLines(Paths.get("src","main","conf","issuer-id.txt")).get(0);
-
-        //Init token ciphering handler
-        this.tokenCipher = new TokenCipher();
-    }
-
-    /**
-     * Authenticate (simulation here) a user based on a login/password couple and return a JWT token
-     * @param request Incoming HTTP request
-     * @param login User login
-     * @param password User password
-     * @param browserFingerprintDigest SHA256 digest of the user browser fingerprint encoded in HEX
-     * @return A HTTP response containing the JWT token
-     */
-    @Path("authenticate")
-    @POST
-    @Produces(MediaType.APPLICATION_JSON)
-    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response authenticate(@Context HttpServletRequest request, @FormParam("login") String login,
-    @FormParam("password") String password,
-    @FormParam("browserFingerprintDigest") String browserFingerprintDigest){
-        //As it's an authentication simulation we explicitly ignore the password here...
-        JSONObject jsonObject = new JSONObject();
-        Response r;
-        try{
-            //Validate the login and the browserFingerprintDigest parameters content to avoid malicious input
-            if(Pattern.matches("[a-zA-Z0-9]{1,10}", login) && Pattern.matches("[a-z0-9]{64}", browserFingerprintDigest)){
-                //Create the token with a validity of 15 minutes and client context (IP + Browser fingerprint digest) information
-                Calendar c = Calendar.getInstance();
-                Date now = c.getTime();
-                c.add(Calendar.MINUTE, 15);
-                Date expirationDate = c.getTime();
-                Map<String, Object> headerClaims = new HashMap<>();
-                headerClaims.put("typ", "JWT");
-                String token = JWT.create().withSubject(login)
-                                       .withExpiresAt(expirationDate)
-                                       .withIssuer(this.issuerID)
-                                       .withIssuedAt(now)
-                                       .withNotBefore(now)
-                                       .withClaim("clientIP", this.retrieveClientIP(request))
-                                       .withClaim("browserFingerprintDigest", browserFingerprintDigest)
-                                       .withHeader(headerClaims)
-                                       .sign(Algorithm.HMAC256(this.keyHMAC));
-                //Cipher the token
-                String cipheredToken = this.tokenCipher.cipherToken(token, this.keyCiphering);
-                //Set token in data container
-                jsonObject.put("token", cipheredToken);
-                jsonObject.put("status", "Authentication successful !");
-            }else{
-                jsonObject.put("token", "-");
-                jsonObject.put("status", "Invalid parameter provided !");
-            }
-
-            //Build response
-            r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
-        } catch (Exception e) {
-            LOG.error("Error during authentication", e);
-            //Return a generic error message
-            jsonObject.put("token", "-");
-            jsonObject.put("status", "An error occur !");
-            r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
-        }
-
-        return r;
-    }
-
-
-    /**
-     * Validate the legitimacy of a call with a JWT
-     * Normally this code is not a service but it's included in the application as shared function and used by all business services to validate the token
-     * before allowing any business processing
-     * @param request Incoming HTTP request
-     * @param browserFingerprintDigest SHA256 digest of the user browser fingerprint encoded in HEX
-     * @return A HTTP response containing the validity status of the call
-     */
-    @Path("validate")
-    @POST
-    @Produces(MediaType.APPLICATION_JSON)
-    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    public Response validate(@Context HttpServletRequest request, @FormParam("browserFingerprintDigest") String browserFingerprintDigest){
-        JSONObject jsonObject = new JSONObject();
-        Response r;
-        try{
-            //Retrieve the token
-            String cipheredToken = request.getHeader("Authorization");
-            if(cipheredToken != null){
-                //Remove the "Bearer" string part
-                cipheredToken = cipheredToken.split(" ")[1].trim();
-            }
-
-            //Validate the browserFingerprintDigest and token parameters content to avoid malicious input
-            if(Pattern.matches("[a-z0-9]{64}", browserFingerprintDigest) && cipheredToken != null){
-                //Decipher the token
-                String token = this.tokenCipher.decipherToken(cipheredToken,this.keyCiphering);
-                //Create a verification context for the token
-                JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
-                                               .withIssuer(this.issuerID)
-                                               .withClaim("clientIP", this.retrieveClientIP(request))
-                                               .withClaim("browserFingerprintDigest", browserFingerprintDigest)
-                                               .build();
-                //Verify the token
-                DecodedJWT decodedToken = verifier.verify(token);
-                //Set token in data container
-                jsonObject.put("status", "Token OK - Welcome '" + decodedToken.getSubject() + "' !");
-            }else{
-                jsonObject.put("status", "Invalid parameter provided !");
-            }
-
-            //Build response
-            r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
-        }
-        catch (JWTVerificationException e) {
-            LOG.warn("Verification of the token failed", e);
-            //Return info that validation failed
-            jsonObject.put("status", "Invalid token !");
-            r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
-        }
-        catch (Exception e) {
-            LOG.warn("Error during token validation", e);
-            //Return a generic error message
-            jsonObject.put("status", "An error occur !");
-            r = Response.ok(jsonObject.toString(), MediaType.APPLICATION_JSON).build();
-        }
-
-        return r;
-    }
-
-    /**
-     * Return the client IP address
-     * @param request Incoming HTTP request
-     * @return The client IP address
-     * @throws IllegalArgumentException If the IP retrieved is invalid
-     * @see "https://en.wikipedia.org/wiki/X-Forwarded-For"
-     */
-    private String retrieveClientIP(HttpServletRequest request) throws IllegalArgumentException{
-        String address;
-        //Get IP from X-Forwarded-For header or from the request object directly
-        String ip = request.getHeader("X-Forwarded-For");
-        if(ip != null){
-            if(ip.contains(",")){
-                ip = ip.split(",")[0];
-            }
-            address = ip.trim();
-        }else{
-            address = request.getRemoteAddr();
-        }
-        //Validate IP format
-        //"InetAddressValidator" came from "commons-validator" API
-        if(!InetAddressValidator.getInstance().isValid(address)){
-            throw new IllegalArgumentException("Invalid IP address !");
-        }
-
-        return address;
-    }
-}
-</pre>
-
-
-
-== Client side ==
-
-'''JavaScript code to generate the browser fingerprint'''
+Load keys and setup cipher.
 
 <pre>
-/* Generate a fingerprint string for the browser */
-function generateFingerprint(){
-    //Generate a string based on "stable" information taken from the browser
-    //We call here "stable information", information that normally don't change during the user
-    //browse the application just after authentication
-    var fingerprint = [];
+//Load keys from configuration text files in order to avoid to store keys as String in JVM memory
+private transient byte[] keyHMAC = Files.readAllBytes(Paths.get("key-hmac.txt"));
+private transient byte[] keyCiphering = Files.readAllBytes(Paths.get("key-ciphering.txt"));
 
-    //Take plugins
-    for(var i = 0; i < navigator.plugins.length; i++){
-       fingerprint.push(navigator.plugins[i].name);
-       fingerprint.push(navigator.plugins[i].filename);
-       fingerprint.push(navigator.plugins[i].description);
-       fingerprint.push(navigator.plugins[i].version);
-    }
+//Load issuer ID from configuration text file
+private transient String issuerID = Files.readAllLines(Paths.get("issuer-id.txt")).get(0);
 
-    //Take User Agent
-    fingerprint.push(navigator.userAgent);
-
-    //Take Screen resolution
-    fingerprint.push(screen.availHeight);
-    fingerprint.push(screen.availWidth);
-    fingerprint.push(screen.colorDepth);
-    fingerprint.push(screen.height);
-    fingerprint.push(screen.pixelDepth);
-    fingerprint.push(screen.width);
-
-    //Take Graphical card info
-    //See http://output.jsbin.com/ovekor/3/
-    try {
-        //Add a Canvas element if the body do not contains one
-        if ( $("#glcanvas").length == 0 ){
-            $(document.body).append("<canvas id='glcanvas'></canvas>");
-        }
-        //Get ref on Canvas
-        var canvas = document.getElementById("glcanvas");
-        //Retrieve Canvas properties
-	    gl = canvas.getContext("experimental-webgl");
-	    gl.viewportWidth = canvas.width;
-	    gl.viewportHeight = canvas.height;
-        fingerprint.push(gl.getParameter(gl.VERSION));
-        fingerprint.push(gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
-        fingerprint.push(gl.getParameter(gl.VENDOR));
-        fingerprint.push(gl.getParameter(gl.RENDERER));
-        fingerprint.push(gl.getSupportedExtensions().join());
-    } catch (e) {
-        //Get also error because it's will be stable too..
-        fingerprint.push(e);
-    }
-
-    //Last and, in order to made this browser unique, generate a random ID that we will store
-    //in local storage (in order to be persistent after browser close/reopen)
-    //Add this ID because, in Enterprise, most of the time browser have the same configuration
-    var browserUniqueID = localStorage.getItem("browserUniqueID");
-    if (browserUniqueID === null) {
-      localStorage.setItem("browserUniqueID", CryptoJS.lib.WordArray.random(80));
-      browserUniqueID = localStorage.getItem("browserUniqueID");
-    }
-    fingerprint.push(browserUniqueID);
-
-    return fingerprint.join();
-}
+//Init token ciphering handler
+TokenCipher tokenCipher = new TokenCipher();
 </pre>
 
+Token creation.
 
-'''JavaScript code to call the REST services and store the JWT token on client side'''
+<pre>
+//Create the token with a validity of 15 minutes and client context (IP + Browser fingerprint SHA256 digest HEX encoded) information
+Calendar c = Calendar.getInstance();
+Date now = c.getTime();
+c.add(Calendar.MINUTE, 15);
+Date expirationDate = c.getTime();
+Map<String, Object> headerClaims = new HashMap<>();
+headerClaims.put("typ", "JWT");
+String token = JWT.create().withSubject(login)
+                       .withExpiresAt(expirationDate)
+                       .withIssuer(issuerID)
+                       .withIssuedAt(now)
+                       .withNotBefore(now)
+                       .withClaim("clientIP", retrieveClientIP(request))
+                       .withClaim("browserFingerprintDigest", browserFingerprintDigest)
+                       .withHeader(headerClaims)
+                       .sign(Algorithm.HMAC256(keyHMAC));
+//Cipher the token
+String cipheredToken = tokenCipher.cipherToken(token, keyCiphering);
+</pre>
+
+Token validation.
+
+<pre>
+//Decipher the token
+String token = tokenCipher.decipherToken(cipheredToken, keyCiphering);
+
+//Create a verification context for the token
+JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
+                               .withIssuer(issuerID)
+                               .withClaim("clientIP", retrieveClientIP(request))
+                               .withClaim("browserFingerprintDigest", browserFingerprintDigest)
+                               .build();
+
+//Verify the token, if the verification fail then a exception is throwed
+DecodedJWT decodedToken = verifier.verify(token);
+</pre>
+
+== Token storage on client side ==
+
+=== Symptom ===
+
+It's occur when a application store the token in a way allowing this one:
+
+* To be automatically sent by the browser (Cookie storage).
+* To be retrieved even if the browser is restarted (Use of localStorage container).
+
+=== How to prevent ===
+
+Store the token using the browser ''sessionStorage'' container and add it as a ''Bearer'' with JavaScript when calling service.
+
+=== Implementation example ===
+
+
+JavaScript code to store the token after authentication.
 
 <pre>
 /* Handle request for JWT token and local storage*/
@@ -484,26 +523,21 @@ function getToken(){
     + encodeURIComponent(fingerprintHash);
 
     $.post("/services/authenticate", postData,function (data){
-        if(data.status == "Authentication successful !"){
-            $("#infoZone").removeClass();
-            $("#infoZone").addClass("alert alert-success");
-            $("#infoZone").text("Token received and stored in session storage !");
+        if(data.status == "Authentication successful !"){	    
             sessionStorage.setItem("token", data.token);
         }else{
-            $("#infoZone").removeClass();
-            $("#infoZone").addClass("alert alert-warning");
-            $("#infoZone").text(data.status);
             sessionStorage.removeItem("token");
         }
     })
     .fail(function(jqXHR, textStatus, error){
-        $("#infoZone").removeClass();
-        $("#infoZone").addClass("alert alert-danger");
-        $("#infoZone").text(error);
         sessionStorage.removeItem("token");
     });
 }
+</pre>
 
+JavaScript code to add the token as ''Beader'' when calling a service, for example a service to validate token here.
+
+<pre>
 /* Handle request for JWT token validation */
 function validateToken(){
     var token = sessionStorage.getItem("token");
@@ -519,43 +553,13 @@ function validateToken(){
         },
         data: postData,
         success: function(data) {
-            if (data.status.startsWith("Token OK")) {
-                $("#infoZone").removeClass();
-                $("#infoZone").addClass("alert alert-success");
-                $("#infoZone").text(data.status);
-            } else {
-                $("#infoZone").removeClass();
-                $("#infoZone").addClass("alert alert-warning");
-                $("#infoZone").text(data.status);
-            }
+		...
         },
         error: function(jqXHR, textStatus, error) {
-            $("#infoZone").removeClass();
-            $("#infoZone").addClass("alert alert-danger");
-            $("#infoZone").text(error);
+		...
         },
     });
 }
 </pre>
-
-= Know issue =
-
-An issue exists in this implementation proposal about the retrieving of the client IP. Indeed, if the header ''X-Forwarded-For'' is present
-then the method ''retrieveClientIP()'' will get the client IP from this header according to the header expected content.
-
-The issue occur when the Web Application Firewall append the existing header ''X-Forwarded-For'' of the incoming request (add the client real network IP at the end of the list)
-instead of overwriting the header content with the real network IP of the incoming request.
-In this way, an attacker can add the header ''X-Forwarded-For'' in his request and set an arbitrary IP that will be taken as the client IP by the the method ''retrieveClientIP()''.
-
-If you don't have any Web Application Firewall or Reverse Proxy in front of your application then use directly the IP from the ''HttpServletRequest'' instance.
-
-
-= Main references =
-
-* JWT - https://jwt.io/introduction/
-* Header "X-Forwarded-For" - https://en.wikipedia.org/wiki/X-Forwarded-For
-* GCM - https://en.wikipedia.org/wiki/Galois/Counter_Mode
-* AES-GCM - https://tools.ietf.org/html/rfc5084
-* GCM NONCE - https://www.cryptologie.net/article/361/nonce-disrespecting-adversaries-practical-forgery-attacks-on-gcm-in-tls
 
 
