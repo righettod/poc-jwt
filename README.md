@@ -6,7 +6,7 @@ A web page propose the creation and the validation of the token, see animated GI
 
 ![Demo](demo.gif)
 
-All classes are full documented.
+All classes are fully documented.
 
 The project was developed with JAX-RS + Maven under IntelliJ IDEA.
 
