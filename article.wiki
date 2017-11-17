@@ -1,7 +1,11 @@
+ __NOTOC__
+<div style="width:100%;height:160px;border:0,margin:0;overflow: hidden;">[[File:Cheatsheets-header.jpg|link=]]</div>
+
+{| style="padding: 0;margin:0;margin-top:10px;text-align:left;" |-
+| valign="top" style="border-right: 1px dotted gray;padding-right:25px;" |
 Last revision (mm/dd/yy): '''{{REVISIONMONTH}}/{{REVISIONDAY}}/{{REVISIONYEAR}}'''
-
-
 = Introduction  =
+ __TOC__{{TOC hidden}}
 
 Many application use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
 
@@ -9,17 +13,55 @@ From ''https://jwt.io/introduction'':
 
 ''JSON Web Token (JWT) is an open standard (RFC 7519) that defines a compact and self-contained way for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret (with the HMAC algorithm) or a public/private key pair using RSA.''
 
+JSON Web Token is used to carry information related to the identity and characteristics (claims) of a client. This "container" is signed by the server in order to avoid that a client tamper it in order to change, for example, the identity or any characteristics (example: change the role from simple user to admin or change the client login). This token is created during authentication (is provided in case of successful authentication) and is verified by the server before any processing. It is used by an application to allow a client to present a token representing his "identity card" (container with all user information about him) to server and allow the server to verify the validity and integrity of the token in a secure way, all of this in a stateless and portable approach (portable in the way that client and server technologies can be different including also the transport channel even if HTTP is the most often used).
+
+= Token structure =
+
+Token structure example taken from ''https://jwt.io/#debugger'':
+
+'''[ Base64(HEADER) ] . [ Base64(PAYLOAD) ] . [ Base64(SIGNATURE) ]'''
+
+<pre>
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ
+</pre>
+
+Chunk 1: Header
+<pre>
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+</pre>
+
+Chunk 2: Payload
+<pre>
+{
+  "sub": "1234567890",
+  "name": "John Doe",
+  "admin": true
+}
+</pre>
+
+Chunk 3: Signature
+<pre>
+HMACSHA256( base64UrlEncode(header) + "." + base64UrlEncode(payload), KEY )
+</pre>
 
 = Objective =
 
 This article have for objective to provide several tips in a form of a cheats sheet, for Java technology, in order to prevent common security issues meet when using JWT.
 
-About the code samples provided in tips, a global java project sample has been created in order to show the creation and the validatin of a token in a secure way.
+About the code samples provided in tips, a global java project sample has been created in order to show the creation and the validation of a token in a secure way.
 
-This project is available [https://github.com/righettod/poc-jwt here] and it use official [https://jwt.io/#libraries JWT library] with [https://github.com/brix/crypto-js Crypto-JS library].
+This project is available [https://github.com/righettod/poc-jwt here] and it use official [https://jwt.io/#libraries JWT library].
 
 In the rest of the article, the term '''token''' refer to the '''JSON Web Tokens''' (JWT).
 
+= Consideration about using JWT =
+
+Even if JWT token is "easy" to use and allow to expose services (mostly REST style) in a stateless mode, it's not the solution that fits for all applications because it cames with some caveats like for example the question of storage (tackled in this cheatsheet) and others...
+
+If your application do not need to be fully stateless, you can consider using traditional session system provided by all web frameworks and follow the advices from the dedicated [[Session_Management_Cheat_Sheet|cheatsheet]]. However, for stateless applications, when well implemented, it's a good candidate.
 
 = Issues =
 
@@ -50,7 +92,6 @@ JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC)).build();
 DecodedJWT decodedToken = verifier.verify(token);
 </pre>
 
-
 == Token sidejacking ==
 
 === Symptom ===
@@ -59,150 +100,34 @@ This attack occur when a token has been intercepted/stolen by a attacker and thi
 
 === How to prevent ===
 
-A way to protect, is to add "user context" in the token. User context here can be composed by the following information:
+A way to protect, is to add "user context" in the token. User context will be composed by the following information:
 
-* Browser unique fingerprint.
-* IP address.
+* A randon string that will be generated during the authentication phase and will be included into the token and also send to the client as an hardened cookie (flag: httpOnly + Secure + SameSite + cookie prefix).
+
+IP address will not be used because there some situation in which IP address can change during the same session like for example when a user access an application through his mobile and he change mobile operator then he change legitimately (often) is IP address. Moreover, using IP address can potentially cause issue at european GDPR compliance level (privacy issue).
 
 During token validation, if the received token do not contains the rights context so, it is replayed and then it must be rejected.
 
 === Implementation example ===
-
-==== Client side: Generate a browser unique fingerprint ====
-
-JavaScript code to generate the browser fingerprint.
-
-<pre>
-/* Generate a fingerprint string for the browser */
-function generateFingerprint(){
-    //Generate a string based on "stable" information taken from the browser
-    //We call here "stable information", information that normally don't change during the user
-    //browse the application just after authentication
-    var fingerprint = [];
-
-    //Take plugins
-    for(var i = 0; i < navigator.plugins.length; i++){
-       fingerprint.push(navigator.plugins[i].name);
-       fingerprint.push(navigator.plugins[i].filename);
-       fingerprint.push(navigator.plugins[i].description);
-       fingerprint.push(navigator.plugins[i].version);
-    }
-
-    //Take User Agent
-    fingerprint.push(navigator.userAgent);
-
-    //Take Screen resolution
-    fingerprint.push(screen.availHeight);
-    fingerprint.push(screen.availWidth);
-    fingerprint.push(screen.colorDepth);
-    fingerprint.push(screen.height);
-    fingerprint.push(screen.pixelDepth);
-    fingerprint.push(screen.width);
-
-    //Take Graphical card info
-    //See http://output.jsbin.com/ovekor/3/
-    try {
-        //Add a Canvas element if the body do not contains one
-        if ( $("#glcanvas").length == 0 ){
-            $(document.body).append("<canvas id='glcanvas'></canvas>");
-        }
-        //Get ref on Canvas
-        var canvas = document.getElementById("glcanvas");
-        //Retrieve Canvas properties
-	    gl = canvas.getContext("experimental-webgl");
-	    gl.viewportWidth = canvas.width;
-	    gl.viewportHeight = canvas.height;
-        fingerprint.push(gl.getParameter(gl.VERSION));
-        fingerprint.push(gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
-        fingerprint.push(gl.getParameter(gl.VENDOR));
-        fingerprint.push(gl.getParameter(gl.RENDERER));
-        fingerprint.push(gl.getSupportedExtensions().join());
-    } catch (e) {
-        //Get also error because it's will be stable too..
-        fingerprint.push(e);
-    }
-
-    //Last and, in order to made this browser unique, generate a random ID that we will store
-    //in local storage (in order to be persistent after browser close/reopen)
-    //Add this ID because, in Enterprise, most of the time browser have the same configuration
-    var browserUniqueID = localStorage.getItem("browserUniqueID");
-    if (browserUniqueID === null) {
-      localStorage.setItem("browserUniqueID", CryptoJS.lib.WordArray.random(80));
-      browserUniqueID = localStorage.getItem("browserUniqueID");
-    }
-    fingerprint.push(browserUniqueID);
-
-    return fingerprint.join();
-}
-</pre>
-
-
-JavaScript code to generate a hash of the fingerprint that will be sent to the server for each request. 
-A hash is send in order to avoid to send user browser properties on the wire.
-
-<pre>
-//Call the fingerprint dedicated function
-var fingerprint = generateFingerprint();
-//Use CryptoJS library ot generate a hex encoded string of the hash of the fingerprint
-var fingerprintHash = CryptoJS.SHA256(fingerprint);
-</pre>
-
-
-==== Server side: Token creation and validation ====
-
-Code to extract the client IP.
-
-'''Remark:'''
-
-An issue exists in this implementation proposal about the retrieving of the client IP. Indeed, if the header ''X-Forwarded-For'' is present
-then the method ''retrieveClientIP()'' will get the client IP from this header according to the header expected content.
-
-The issue occur when the Web Application Firewall append the existing header ''X-Forwarded-For'' of the incoming request (add the client real network IP at the end of the list)
-instead of overwriting the header content with the real network IP of the incoming request.
-In this way, an attacker can add the header ''X-Forwarded-For'' in his request and set an arbitrary IP that will be taken as the client IP by the the method ''retrieveClientIP()''.
-
-If you don't have any Web Application Firewall or Reverse Proxy in front of your application then use directly the IP from the ''HttpServletRequest'' instance.
-
-<pre>
-/**
-* Return the client IP address
-* @param request Incoming HTTP request
-* @return The client IP address
-* @throws IllegalArgumentException If the IP retrieved is invalid
-* @see "https://en.wikipedia.org/wiki/X-Forwarded-For"
-*/
-private String retrieveClientIP(HttpServletRequest request) throws IllegalArgumentException{
-	String address;
-	//Get IP from X-Forwarded-For header or from the request object directly
-	String ip = request.getHeader("X-Forwarded-For");
-	if(ip != null){
-	    if(ip.contains(",")){
-		ip = ip.split(",")[0];
-	    }
-	    address = ip.trim();
-	}else{
-	    address = request.getRemoteAddr();
-	}
-	//Validate IP format
-	//"InetAddressValidator" came from "commons-validator" API
-	if(!InetAddressValidator.getInstance().isValid(address)){
-	    throw new IllegalArgumentException("Invalid IP address !");
-	}
-
-	return address;
-}
-</pre>
-
 
 Code to create the token after success authentication.
 
 <pre>
 // HMAC key - Block serialization and storage as String in JVM memory
 private transient byte[] keyHMAC = ...;
+// Random data generator
+private SecureRandom secureRandom = new SecureRandom();
 
 ...
 
-//Create the token with a validity of 15 minutes and client context (IP + Browser fingerprint SHA256 digest HEX encoded) information
+//Generate a random string that will constitute the fingerprint for this user
+byte[] randomFgp = new byte[50];
+this.secureRandom.nextBytes(randomFgp);
+String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
+//Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
+String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
+response.addHeader("Set-Cookie", fingerprintCookie);
+//Create the token with a validity of 15 minutes and client context (fingerprint) information
 Calendar c = Calendar.getInstance();
 Date now = c.getTime();
 c.add(Calendar.MINUTE, 15);
@@ -210,14 +135,13 @@ Date expirationDate = c.getTime();
 Map<String, Object> headerClaims = new HashMap<>();
 headerClaims.put("typ", "JWT");
 String token = JWT.create().withSubject(login)
-                       .withExpiresAt(expirationDate)
-                       .withIssuer(issuerID)
-                       .withIssuedAt(now)
-                       .withNotBefore(now)
-                       .withClaim("clientIP", retrieveClientIP(request))
-                       .withClaim("browserFingerprintDigest", browserFingerprintDigest)
-                       .withHeader(headerClaims)
-                       .sign(Algorithm.HMAC256(keyHMAC));
+		.withExpiresAt(expirationDate)
+		.withIssuer(this.issuerID)
+		.withIssuedAt(now)
+		.withNotBefore(now)
+		.withClaim("userFingerprint", userFingerprint)
+		.withHeader(headerClaims)
+		.sign(Algorithm.HMAC256(this.keyHMAC));
 </pre>
 
 
@@ -229,15 +153,134 @@ private transient byte[] keyHMAC = ...;
 
 ...
 
+//Retrieve the user fingerprint from the dedicated cookie
+String userFingerprint = null;
+if (request.getCookies() != null && request.getCookies().length > 0) {
+	List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
+	Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
+	if (cookie.isPresent()) {
+		userFingerprint = cookie.get().getValue();
+	}
+}
+
 //Create a verification context for the token
 JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC))
                                .withIssuer(issuerID)
-                               .withClaim("clientIP", retrieveClientIP(request))
-                               .withClaim("browserFingerprintDigest", browserFingerprintDigest)
+                               .withClaim("userFingerprint", userFingerprint)
                                .build();
 
 //Verify the token, if the verification fail then a exception is throwed
 DecodedJWT decodedToken = verifier.verify(token);
+</pre>
+
+== Token explicit revocation by the user ==
+
+=== Symptom ===
+
+This problem is inerrant to JWT token because a token become only invalid when it expires. The user has no built-in feature to explicitly revoke the validity of an token.
+So, in case of steal, a user cannot revoke the token itself and then block the attacker.
+
+=== How to prevent ===
+
+A way to protect, is to implement a token blacklist that will be used to mimic the "logout" feature that exists with traditional session system.
+
+The blacklist will keep a digest (SHA-256 encoded in HEX) of the token with a revokation date, this,  for a duration that must superior to the duration validity of a issued token.
+
+When the user want to "logout" then it call a dedicated service that will add the provided user token to the blacklist resulting in a immediate invalidation of the token for usage in the application.
+
+=== Implementation example ===
+
+==== Blacklist storage ====
+
+A database table with the following structure will used as central blacklist storage.
+
+<pre>
+create table if not exists revoked_token(jwt_token_digest varchar(255) primary key, revokation_date timestamp default now());
+</pre>
+
+==== Token revocation management ====
+
+Code in charge of adding a token to the blacklist and check if a token is revoked.
+
+<pre>
+/**
+ * Handle the revokation of the token (logout).
+ * Use a DB in order to allow multiple instances to check for revoked token and allow cleanup at centralized DB level.
+ */
+public class TokenRevoker {
+
+  /** DB Connection */
+  @Resource("jdbc/storeDS")
+  private DataSource storeDS;
+
+  /**
+   * Verify if a digest encoded in HEX of the ciphered token is present in the revokation table
+   *
+   * @param jwtInHex Token encoded in HEX
+   * @return Presence flag
+   * @throws Exception If any issue occur during communication with DB
+   */
+  public boolean isTokenRevoked(String jwtInHex) throws Exception {
+      boolean tokenIsPresent = false;
+      if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
+          //Decode the ciphered token
+          byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
+
+          //Compute a SHA256 of the ciphered token
+          MessageDigest digest = MessageDigest.getInstance("SHA-256");
+          byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+          String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
+
+          //Search token digest in HEX in DB
+          try (Connection con = this.storeDS.getConnection()) {
+              //Search token digest in HEX in DB
+              String query = "select jwt_token_digest from revoked_token where jwt_token_digest = ?";
+              try (PreparedStatement pStatement = con.prepareStatement(query)) {
+                  pStatement.setString(1, jwtTokenDigestInHex);
+                  try (ResultSet rSet = pStatement.executeQuery()) {
+                      tokenIsPresent = rSet.next();
+                  }
+              }
+          }
+      }
+
+      return tokenIsPresent;
+  }
+
+
+  /**
+   * Add a digest encoded in HEX of the ciphered token to the revokation token table
+   *
+   * @param jwtInHex Token encoded in HEX
+   * @throws Exception If any issue occur during communication with DB
+   */
+  public void revokeToken(String jwtInHex) throws Exception {
+      if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
+          //Decode the ciphered token
+          byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
+
+          //Compute a SHA256 of the ciphered token
+          MessageDigest digest = MessageDigest.getInstance("SHA-256");
+          byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+          String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
+
+          //Check if the token digest in HEX is already in the DB and add it if it is absent
+          if (!this.isTokenRevoked(jwtInHex)) {
+              try (Connection con = this.storeDS.getConnection()) {
+                  String query = "insert into revoked_token(jwt_token_digest) values(?)";
+                  int insertedRecordCount;
+                  try (PreparedStatement pStatement = con.prepareStatement(query)) {
+                      pStatement.setString(1, jwtTokenDigestInHex);
+                      insertedRecordCount = pStatement.executeUpdate();
+                  }
+                  if (insertedRecordCount != 1) {
+                      throw new IllegalStateException("Number of inserted record is invalid, 1 expected but is " + insertedRecordCount);
+                  }
+              }
+          }
+
+      }
+  }
 </pre>
 
 
@@ -249,13 +292,17 @@ This attack occur when a attacker access to a token (or a set of tokens) and ext
 
 === How to prevent ===
 
-A way to protect, is to cipher the token using for example a symetric algorithm. 
+A way to protect, is to cipher the token using for example a symetric algorithm.
 
 It's also important to protect the ciphered data against attack like [[Testing_for_Padding_Oracle_(OTG-CRYPST-002)|Padding Oracle]] or any other attack using cryptanalysis.
 
-In order to achieve all these goals, the algorithm ''AES-GCM'' can be used in conjunction with ''Additional Authentication Data (AAD)'' feature. 
+In order to achieve all these goals, the algorithm ''AES-GCM'' can be used in conjunction with ''Additional Authentication Data (AAD)'' feature.
 
 A database can be used to store the ''NONCE'' and the ''AAD'' associated to a token.
+
+'''Note:'''
+
+Here ciphering is added mainly to hide internal information but it's very important to remember that the first protection against tampering of the JWT token is the signature so, the token signature and is verification must be always in place.
 
 === Implementation example ===
 
@@ -457,22 +504,28 @@ TokenCipher tokenCipher = new TokenCipher();
 Token creation.
 
 <pre>
-//Create the token with a validity of 15 minutes and client context (IP + Browser fingerprint SHA256 digest HEX encoded) information
-Calendar c = Calendar.getInstance();
-Date now = c.getTime();
-c.add(Calendar.MINUTE, 15);
-Date expirationDate = c.getTime();
-Map<String, Object> headerClaims = new HashMap<>();
-headerClaims.put("typ", "JWT");
-String token = JWT.create().withSubject(login)
-                       .withExpiresAt(expirationDate)
-                       .withIssuer(issuerID)
-                       .withIssuedAt(now)
-                       .withNotBefore(now)
-                       .withClaim("clientIP", retrieveClientIP(request))
-                       .withClaim("browserFingerprintDigest", browserFingerprintDigest)
-                       .withHeader(headerClaims)
-                       .sign(Algorithm.HMAC256(keyHMAC));
+  //Generate a random string that will constitute the fingerprint for this user
+  byte[] randomFgp = new byte[50];
+  this.secureRandom.nextBytes(randomFgp);
+  String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
+  //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
+  String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
+  response.addHeader("Set-Cookie", fingerprintCookie);
+  //Create the token with a validity of 15 minutes and client context (fingerprint) information
+  Calendar c = Calendar.getInstance();
+  Date now = c.getTime();
+  c.add(Calendar.MINUTE, 15);
+  Date expirationDate = c.getTime();
+  Map<String, Object> headerClaims = new HashMap<>();
+  headerClaims.put("typ", "JWT");
+  String token = JWT.create().withSubject(login)
+  		.withExpiresAt(expirationDate)
+  		.withIssuer(this.issuerID)
+  		.withIssuedAt(now)
+  		.withNotBefore(now)
+  		.withClaim("userFingerprint", userFingerprint)
+  		.withHeader(headerClaims)
+  		.sign(Algorithm.HMAC256(this.keyHMAC));
 //Cipher the token
 String cipheredToken = tokenCipher.cipherToken(token, keyCiphering);
 </pre>
@@ -483,12 +536,23 @@ Token validation.
 //Decipher the token
 String token = tokenCipher.decipherToken(cipheredToken, keyCiphering);
 
+//Retrieve the user fingerprint from the dedicated cookie
+String userFingerprint = null;
+if (request.getCookies() != null && request.getCookies().length > 0) {
+	List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
+	Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
+	if (cookie.isPresent()) {
+		userFingerprint = cookie.get().getValue();
+	}
+}
+
+//Decipher the token
+String token = this.tokenCipher.decipherToken(cipheredToken, this.keyCiphering);
 //Create a verification context for the token
 JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
-                               .withIssuer(issuerID)
-                               .withClaim("clientIP", retrieveClientIP(request))
-                               .withClaim("browserFingerprintDigest", browserFingerprintDigest)
-                               .build();
+		.withIssuer(this.issuerID)
+		.withClaim("userFingerprint", userFingerprint)
+		.build();
 
 //Verify the token, if the verification fail then a exception is throwed
 DecodedJWT decodedToken = verifier.verify(token);
@@ -500,12 +564,19 @@ DecodedJWT decodedToken = verifier.verify(token);
 
 It's occur when a application store the token in a way allowing this one:
 
-* To be automatically sent by the browser (Cookie storage).
-* To be retrieved even if the browser is restarted (Use of localStorage container).
+* To be automatically sent by the browser (''Cookie'' storage).
+* To be retrieved even if the browser is restarted (Use of browser ''localStorage'' container).
 
 === How to prevent ===
 
 Store the token using the browser ''sessionStorage'' container and add it as a ''Bearer'' with JavaScript when calling service.
+
+By storing the token in browser ''sessionStorage'' container it expose the token to be steal in case of XSS issue. To tackle this point and make it more harden to exfiltrate in case of XSS issue, a browser [[OWASP_Secure_Headers_Project#csp|Content Security Policy]] must be added.
+
+''Note:''
+It's also possible to implements the authentication service in a way that the token is issued within a hardened cookie, but in this case, a protection against [[Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet|Cross-Site Request Forgery]] attack must be implemented.
+
+
 
 === Implementation example ===
 
@@ -513,57 +584,139 @@ Store the token using the browser ''sessionStorage'' container and add it as a '
 JavaScript code to store the token after authentication.
 
 <pre>
-/* Handle request for JWT token and local storage*/
-function getToken(){
-    var login = $("#login").val();
-    var password = $("#password").val();
-    var fingerprint = generateFingerprint();
-    var fingerprintHash = CryptoJS.SHA256(fingerprint);
-    var postData = "login=" + encodeURIComponent(login) + "&password=" + encodeURIComponent(password) +"&browserFingerprintDigest="
-    + encodeURIComponent(fingerprintHash);
+  /* Handle request for JWT token and local storage*/
+  function getToken(){
+      var login = $("#login").val();
+      var postData = "login=" + encodeURIComponent(login) + "&password=test";
 
-    $.post("/services/authenticate", postData,function (data){
-        if(data.status == "Authentication successful !"){	    
-            sessionStorage.setItem("token", data.token);
-        }else{
-            sessionStorage.removeItem("token");
-        }
-    })
-    .fail(function(jqXHR, textStatus, error){
-        sessionStorage.removeItem("token");
-    });
-}
+      $.post("/services/authenticate", postData,function (data){
+          if(data.status == "Authentication successful !"){
+              ...
+              sessionStorage.setItem("token", data.token);
+          }else{
+              ...
+              sessionStorage.removeItem("token");
+          }
+      })
+      .fail(function(jqXHR, textStatus, error){
+              ...
+          sessionStorage.removeItem("token");
+      });
+  }
 </pre>
 
-JavaScript code to add the token as ''Beader'' when calling a service, for example a service to validate token here.
+JavaScript code to add the token as ''Bearer'' when calling a service, for example a service to validate token here.
 
 <pre>
-/* Handle request for JWT token validation */
-function validateToken(){
-    var token = sessionStorage.getItem("token");
-    var fingerprint = generateFingerprint();
-    var fingerprintHash = CryptoJS.SHA256(fingerprint);
-    var postData = "browserFingerprintDigest=" + encodeURIComponent(fingerprintHash);
+  /* Handle request for JWT token validation */
+  function validateToken(){
+      var token = sessionStorage.getItem("token");
 
-    $.ajax({
-        url: "/services/validate",
-        type: "POST",
-        beforeSend: function(xhr) {
-            xhr.setRequestHeader("Authorization", "bearer " + token);
-        },
-        data: postData,
-        success: function(data) {
-		...
-        },
-        error: function(jqXHR, textStatus, error) {
-		...
-        },
-    });
-}
+      if(token == undefined || token == ""){
+          $("#infoZone").removeClass();
+          $("#infoZone").addClass("alert alert-warning");
+          $("#infoZone").text("Obtain a JWT token first :)");
+          return;
+      }
+
+      $.ajax({
+          url: "/services/validate",
+          type: "POST",
+          beforeSend: function(xhr) {
+              xhr.setRequestHeader("Authorization", "bearer " + token);
+          },
+          success: function(data) {
+            ...
+          },
+          error: function(jqXHR, textStatus, error) {
+            ...
+          },
+      });
+  }
 </pre>
+
+
+== Token weak secret ==
+
+=== Symptom ===
+
+It's occur when the secret used in case of HMAC SHA256 algorithm used for the token signature is weak and can be bruteforced.
+
+The result is the capacity for an attacker to forge arbitrary valid token from a signature point of view.
+
+See [https://www.notsosecure.com/crafting-way-json-web-tokens/ here] for an example.
+
+=== How to prevent ===
+
+Use a very strong secret: Alphanumeric (mixed case) + special characters.
+
+As it's a computer processing only, the size can be superior to 50 positions.
+
+Secret example:
+
+<pre>A&'/}Z57M(2hNg=;LE?~]YtRMS5(yZ<vcZTA3N-($>2j:ZeX-BGftaVk`)jKP~q?,jk)EMbgt*kW'(</pre>
+
+To evaluate the strength of the secret used for your token signature, you can apply a password dictionary attack on the token combined with the JWT API to facilitate the implementation of a breaker.
+
+Password dictionaries can be found for example [https://wiki.skullsecurity.org/Passwords here].
+
+=== Implementation example ===
+
+Code in charge of testing a secret against a JWT token test base.
+
+<pre>
+  /**
+  * Test if a secret match the secret used to sign the token
+  * @param token Source JWT token (test base)
+  * @param secret Secret to test
+  * @return The token decoded if the secret matche otherwise return null
+  */
+private DecodedJWT checkSecret(String token, String secret) {
+      DecodedJWT t = null;
+      try {
+          Algorithm algorithm = Algorithm.HMAC256(secret);
+          JWTVerifier verifier = JWT.require(algorithm).build();
+          t = verifier.verify(token);
+      } catch (JWTVerificationException | UnsupportedEncodingException e) {
+          //ignore...
+      }
+      return t;
+  }
+</pre>
+
+Code snippet to evaluate the token test base on the secret dictionary.
+
+<pre>
+final String tokenTestBase = ...;
+final String[] secret = new String[1];
+final DecodedJWT[] decodedToken = new DecodedJWT[1];
+List<String> secrets = Files.readAllLines(Paths.get("secrets-dictionary.txt"));
+secrets.parallelStream().forEach(s -> {
+	DecodedJWT tentative = checkSecret(tokenTestBase, s);
+	if (tentative != null) {
+		secret[0] = s;
+		decodedToken[0] = tentative;
+	}
+});
+</pre>
+
+=== Popular tool ===
+
+You can also used [https://github.com/hashcat/hashcat/issues/1057#issuecomment-279651700 JohnTheRipper] to perform the password dictionary attack.
+
+Support for [https://github.com/hashcat/hashcat/issues/1057 Hashcat] is pending.
+
+
+= Authors and Primary Editors  =
+
+Jim Manico - jim.manico@owasp.org
+Dominique Righetto - dominique.righetto@owasp.org
+Paul Ionescu - paul.ionescu@owasp.org
 
 = Other Cheatsheets =
 
 {{Cheatsheet_Navigation_Body}}
+
+|}
 
 [[Category:Cheatsheets]]

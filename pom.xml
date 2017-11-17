@@ -16,12 +16,6 @@
             <version>3.1.0</version>
             <scope>provided</scope>
         </dependency>
-        <!-- For IP address validation V4 or V6 -->
-        <dependency>
-            <groupId>commons-validator</groupId>
-            <artifactId>commons-validator</artifactId>
-            <version>1.5.1</version>
-        </dependency>
         <!-- For GCM NONCE storage -->
         <dependency>
             <groupId>com.h2database</groupId>
@@ -84,8 +78,11 @@
                 <artifactId>tomcat7-maven-plugin</artifactId>
                 <version>2.2</version>
                 <configuration>
-                    <port>9090</port>
+                    <httpsPort>8443</httpsPort>
                     <path>/</path>
+                    <keystoreFile>${basedir}/src/main/conf/tls-config.jks</keystoreFile>
+                    <keystorePass>password</keystorePass>
+                    <keystoreType>JKS</keystoreType>
                 </configuration>
             </plugin>
         </plugins>

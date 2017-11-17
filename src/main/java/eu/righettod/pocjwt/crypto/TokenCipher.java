@@ -1,11 +1,12 @@
 package eu.righettod.pocjwt.crypto;
 
+import eu.righettod.pocjwt.constant.Constants;
+
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.bind.DatatypeConverter;
-import java.io.File;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -40,9 +41,6 @@ public class TokenCipher {
 
     /**Secure random generator */
     private final SecureRandom secRandom = new SecureRandom();
-
-    /** JDBC URL of the DB*/
-    private final String jdbcUrl = "jdbc:h2:file:" + new File("target/store").getAbsolutePath() + ";INIT=RUNSCRIPT FROM 'classpath:db_creation.sql';DB_CLOSE_ON_EXIT=TRUE;";
 
     /**
      * Constructor - Load DB Driver
@@ -154,7 +152,7 @@ public class TokenCipher {
      * @throws Exception If any issue occur during communication with DB
      */
     private void storeNonceAndAAD(String nonceInHex, String aadInHex, String jwtTokenDigestInHex) throws Exception {
-        try (Connection con = DriverManager.getConnection(jdbcUrl)) {
+        try (Connection con = DriverManager.getConnection(Constants.JDBC_URL)) {
             String query = "insert into nonce(jwt_token_digest, gcm_nonce, gcm_aad) values(?, ?, ?)";
             int insertedRecordCount;
             try (PreparedStatement pStatement = con.prepareStatement(query)) {
@@ -177,7 +175,7 @@ public class TokenCipher {
      */
     private  Map<String,String> readNonceAndAAD(String jwtTokenDigestInHex) throws Exception{
         Map<String,String> gcmInfos = null;
-        try (Connection con = DriverManager.getConnection(jdbcUrl)) {
+        try (Connection con = DriverManager.getConnection(Constants.JDBC_URL)) {
             String query = "select gcm_nonce, gcm_aad from nonce where jwt_token_digest = ?";
             try (PreparedStatement pStatement = con.prepareStatement(query)) {
                 pStatement.setString(1, jwtTokenDigestInHex);
