@@ -7,13 +7,15 @@ Last revision (mm/dd/yy): '''{{REVISIONMONTH}}/{{REVISIONDAY}}/{{REVISIONYEAR}}'
 = Introduction  =
  __TOC__{{TOC hidden}}
 
-Many application use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
+Many applications use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
 
 From ''https://jwt.io/introduction'':
 
 ''JSON Web Token (JWT) is an open standard (RFC 7519) that defines a compact and self-contained way for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret (with the HMAC algorithm) or a public/private key pair using RSA.''
 
-JSON Web Token is used to carry information related to the identity and characteristics (claims) of a client. This "container" is signed by the server in order to avoid that a client tamper it in order to change, for example, the identity or any characteristics (example: change the role from simple user to admin or change the client login). This token is created during authentication (is provided in case of successful authentication) and is verified by the server before any processing. It is used by an application to allow a client to present a token representing his "identity card" (container with all user information about him) to server and allow the server to verify the validity and integrity of the token in a secure way, all of this in a stateless and portable approach (portable in the way that client and server technologies can be different including also the transport channel even if HTTP is the most often used).
+JSON Web Token is used to carry information related to the identity and characteristics (claims) of a client. This "container" is signed by the server in order to avoid that a client tamper it in order to change, for example, the identity or any characteristics (example: change the role from simple user to admin or change the client login).
+
+This token is created during authentication (is provided in case of successful authentication) and is verified by the server before any processing. It is used by an application to allow a client to present a token representing his "identity card" (container with all information about him) to server and allow the server to verify the validity and integrity of the token in a secure way, all of this in a stateless and portable approach (portable in the way that client and server technologies can be different including also the transport channel even if HTTP is the most often used).
 
 = Token structure =
 
@@ -49,7 +51,7 @@ HMACSHA256( base64UrlEncode(header) + "." + base64UrlEncode(payload), KEY )
 
 = Objective =
 
-This article have for objective to provide several tips in a form of a cheats sheet, for Java technology, in order to prevent common security issues meet when using JWT.
+This article have for objective to provide several tips in a form of a cheatsheet, for Java technology, in order to prevent common security issues meet when using JWT.
 
 About the code samples provided in tips, a global java project sample has been created in order to show the creation and the validation of a token in a secure way.
 
@@ -59,7 +61,7 @@ In the rest of the article, the term '''token''' refer to the '''JSON Web Tokens
 
 = Consideration about using JWT =
 
-Even if JWT token is "easy" to use and allow to expose services (mostly REST style) in a stateless mode, it's not the solution that fits for all applications because it cames with some caveats like for example the question of storage (tackled in this cheatsheet) and others...
+Even if a JWT token is "easy" to use and allow to expose services (mostly REST style) in a stateless way, it's not the solution that fits for all applications because it cames with some caveats like for example the question of the storage of the token (tackled in this cheatsheet) and others...
 
 If your application do not need to be fully stateless, you can consider using traditional session system provided by all web frameworks and follow the advices from the dedicated [[Session_Management_Cheat_Sheet|cheatsheet]]. However, for stateless applications, when well implemented, it's a good candidate.
 
@@ -100,13 +102,13 @@ This attack occur when a token has been intercepted/stolen by a attacker and thi
 
 === How to prevent ===
 
-A way to protect, is to add "user context" in the token. User context will be composed by the following information:
+A way to protect is to add "user context" in the token. User context will be composed by the following information:
 
-* A randon string that will be generated during the authentication phase and will be included into the token and also send to the client as an hardened cookie (flag: httpOnly + Secure + SameSite + cookie prefix).
+* A random string that will be generated during the authentication phase and will be included into the token and also send to the client as an hardened cookie (flags: HttpOnly + Secure + SameSite + cookie prefix).
 
-IP address will not be used because there some situation in which IP address can change during the same session like for example when a user access an application through his mobile and he change mobile operator then he change legitimately (often) is IP address. Moreover, using IP address can potentially cause issue at european GDPR compliance level (privacy issue).
+IP address will not be used because there some situation in which IP address can change during the same session like for example when a user access an application through his mobile and he change of mobile operator during the exchange then he change legitimately (often) is IP address. Moreover, using IP address can potentially cause issue at [http://www.eugdpr.org/ European GDPR] compliance level.
 
-During token validation, if the received token do not contains the rights context so, it is replayed and then it must be rejected.
+During token validation, if the received token do not contains the right context so, it is replayed and then it must be rejected.
 
 === Implementation example ===
 
@@ -124,9 +126,11 @@ private SecureRandom secureRandom = new SecureRandom();
 byte[] randomFgp = new byte[50];
 this.secureRandom.nextBytes(randomFgp);
 String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
+
 //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
 String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
 response.addHeader("Set-Cookie", fingerprintCookie);
+
 //Create the token with a validity of 15 minutes and client context (fingerprint) information
 Calendar c = Calendar.getInstance();
 Date now = c.getTime();
@@ -182,11 +186,11 @@ So, in case of steal, a user cannot revoke the token itself and then block the a
 
 === How to prevent ===
 
-A way to protect, is to implement a token blacklist that will be used to mimic the "logout" feature that exists with traditional session system.
+A way to protect is to implement a token blacklist that will be used to mimic the "logout" feature that exists with traditional session system.
 
-The blacklist will keep a digest (SHA-256 encoded in HEX) of the token with a revokation date, this,  for a duration that must superior to the duration validity of a issued token.
+The blacklist will keep a digest (SHA-256 encoded in HEX) of the token with a revokation date, this, for a duration that must be superior to the duration validity of a issued token.
 
-When the user want to "logout" then it call a dedicated service that will add the provided user token to the blacklist resulting in a immediate invalidation of the token for usage in the application.
+When the user want to "logout" then it call a dedicated service that will add the provided user token to the blacklist resulting in a immediate invalidation of the token for further usage in the application.
 
 === Implementation example ===
 
@@ -233,7 +237,6 @@ public class TokenRevoker {
 
           //Search token digest in HEX in DB
           try (Connection con = this.storeDS.getConnection()) {
-              //Search token digest in HEX in DB
               String query = "select jwt_token_digest from revoked_token where jwt_token_digest = ?";
               try (PreparedStatement pStatement = con.prepareStatement(query)) {
                   pStatement.setString(1, jwtTokenDigestInHex);
@@ -508,9 +511,11 @@ Token creation.
   byte[] randomFgp = new byte[50];
   this.secureRandom.nextBytes(randomFgp);
   String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
+
   //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
   String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
   response.addHeader("Set-Cookie", fingerprintCookie);
+
   //Create the token with a validity of 15 minutes and client context (fingerprint) information
   Calendar c = Calendar.getInstance();
   Date now = c.getTime();
@@ -569,14 +574,12 @@ It's occur when a application store the token in a way allowing this one:
 
 === How to prevent ===
 
-Store the token using the browser ''sessionStorage'' container and add it as a ''Bearer'' with JavaScript when calling service.
+Store the token using the browser ''sessionStorage'' container and add it as a ''Bearer'' with JavaScript when calling services.
 
 By storing the token in browser ''sessionStorage'' container it expose the token to be steal in case of XSS issue. To tackle this point and make it more harden to exfiltrate in case of XSS issue, a browser [[OWASP_Secure_Headers_Project#csp|Content Security Policy]] must be added.
 
 ''Note:''
 It's also possible to implements the authentication service in a way that the token is issued within a hardened cookie, but in this case, a protection against [[Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet|Cross-Site Request Forgery]] attack must be implemented.
-
-
 
 === Implementation example ===
 
@@ -650,7 +653,7 @@ See [https://www.notsosecure.com/crafting-way-json-web-tokens/ here] for an exam
 
 Use a very strong secret: Alphanumeric (mixed case) + special characters.
 
-As it's a computer processing only, the size can be superior to 50 positions.
+As it's a computer processing only, the size of the secret can be superior to 50 positions.
 
 Secret example:
 
@@ -667,6 +670,7 @@ Code in charge of testing a secret against a JWT token test base.
 <pre>
   /**
   * Test if a secret match the secret used to sign the token
+  *
   * @param token Source JWT token (test base)
   * @param secret Secret to test
   * @return The token decoded if the secret matche otherwise return null
@@ -700,9 +704,10 @@ secrets.parallelStream().forEach(s -> {
 });
 </pre>
 
-=== Popular tool ===
+=== Use dedicated tools ===
 
 You can also used [https://github.com/hashcat/hashcat/issues/1057#issuecomment-279651700 JohnTheRipper] to perform the password dictionary attack.
+
 
 Support for [https://github.com/hashcat/hashcat/issues/1057 Hashcat] is pending.
 
@@ -710,7 +715,9 @@ Support for [https://github.com/hashcat/hashcat/issues/1057 Hashcat] is pending.
 = Authors and Primary Editors  =
 
 Jim Manico - jim.manico@owasp.org
+
 Dominique Righetto - dominique.righetto@owasp.org
+
 Paul Ionescu - paul.ionescu@owasp.org
 
 = Other Cheatsheets =
