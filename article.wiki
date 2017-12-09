@@ -174,7 +174,7 @@ if (request.getCookies() != null && request.getCookies().length > 0) {
  }
 }
 
-//Compute a SHA256 hash of the received fingerprint in cookie in order to compare to the fingerprint hash stored in the cookie
+//Compute a SHA256 hash of the received fingerprint in cookie in order to compare it to the fingerprint hash stored in the token
 MessageDigest digest = MessageDigest.getInstance("SHA-256");
 byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
 String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
@@ -569,7 +569,7 @@ if (request.getCookies() != null && request.getCookies().length > 0) {
  }
 }
 
-//Compute a SHA256 hash of the received fingerprint in cookie in order to compare to the fingerprint hash stored in the cookie
+//Compute a SHA256 hash of the received fingerprint in cookie in order to compare it to the fingerprint hash stored in the token
 MessageDigest digest = MessageDigest.getInstance("SHA-256");
 byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
 String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
