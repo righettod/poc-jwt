@@ -1,11 +1,11 @@
- __NOTOC__
+__NOTOC__
 <div style="width:100%;height:160px;border:0,margin:0;overflow: hidden;">[[File:Cheatsheets-header.jpg|link=]]</div>
 
 {| style="padding: 0;margin:0;margin-top:10px;text-align:left;" |-
 | valign="top" style="border-right: 1px dotted gray;padding-right:25px;" |
 Last revision (mm/dd/yy): '''{{REVISIONMONTH}}/{{REVISIONDAY}}/{{REVISIONYEAR}}'''
 = Introduction  =
- __TOC__{{TOC hidden}}
+__TOC__{{TOC hidden}}
 
 Many applications use '''JSON Web Tokens''' (JWT) to allow the client to indicate is identity for further exchange after authentication.
 
@@ -30,17 +30,17 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4
 Chunk 1: Header
 <pre>
 {
-  "alg": "HS256",
-  "typ": "JWT"
+ "alg": "HS256",
+ "typ": "JWT"
 }
 </pre>
 
 Chunk 2: Payload
 <pre>
 {
-  "sub": "1234567890",
-  "name": "John Doe",
-  "admin": true
+ "sub": "1234567890",
+ "name": "John Doe",
+ "admin": true
 }
 </pre>
 
@@ -81,7 +81,7 @@ Last, during token validation, explicitly request that the expected algorithm wa
 
 === Implementation example ===
 
-<pre>
+<syntaxhighlight lang="java">
 // HMAC key - Block serialization and storage as String in JVM memory
 private transient byte[] keyHMAC = ...;
 
@@ -92,7 +92,7 @@ JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC)).build();
 
 //Verify the token, if the verification fail then a exception is throwed
 DecodedJWT decodedToken = verifier.verify(token);
-</pre>
+</syntaxhighlight>
 
 == Token sidejacking ==
 
@@ -105,6 +105,7 @@ This attack occur when a token has been intercepted/stolen by a attacker and thi
 A way to protect is to add "user context" in the token. User context will be composed by the following information:
 
 * A random string that will be generated during the authentication phase and will be included into the token and also send to the client as an hardened cookie (flags: HttpOnly + Secure + SameSite + cookie prefix).
+* A SHA256 hash of the random string will be stored in the token (instead of the raw value) in order to prevent that any XSS issue allow the attacker to read the random string value and set the expected cookie.
 
 IP address will not be used because there some situation in which IP address can change during the same session like for example when a user access an application through his mobile and he change of mobile operator during the exchange then he change legitimately (often) is IP address. Moreover, using IP address can potentially cause issue at [http://www.eugdpr.org/ European GDPR] compliance level.
 
@@ -114,7 +115,7 @@ During token validation, if the received token do not contains the right context
 
 Code to create the token after success authentication.
 
-<pre>
+<syntaxhighlight lang="java">
 // HMAC key - Block serialization and storage as String in JVM memory
 private transient byte[] keyHMAC = ...;
 // Random data generator
@@ -131,6 +132,12 @@ String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
 String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
 response.addHeader("Set-Cookie", fingerprintCookie);
 
+//Compute a SHA256 hash of the fingerprint in order to store the fingerprint hash (instead of the raw value) in the token
+//to prevent an XSS to be able to read the fingerprint and set the expected cookie itself
+MessageDigest digest = MessageDigest.getInstance("SHA-256");
+byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
+
 //Create the token with a validity of 15 minutes and client context (fingerprint) information
 Calendar c = Calendar.getInstance();
 Date now = c.getTime();
@@ -139,19 +146,19 @@ Date expirationDate = c.getTime();
 Map<String, Object> headerClaims = new HashMap<>();
 headerClaims.put("typ", "JWT");
 String token = JWT.create().withSubject(login)
-		.withExpiresAt(expirationDate)
-		.withIssuer(this.issuerID)
-		.withIssuedAt(now)
-		.withNotBefore(now)
-		.withClaim("userFingerprint", userFingerprint)
-		.withHeader(headerClaims)
-		.sign(Algorithm.HMAC256(this.keyHMAC));
-</pre>
+   .withExpiresAt(expirationDate)
+   .withIssuer(this.issuerID)
+   .withIssuedAt(now)
+   .withNotBefore(now)
+   .withClaim("userFingerprint", userFingerprintHash)
+   .withHeader(headerClaims)
+   .sign(Algorithm.HMAC256(this.keyHMAC));
+</syntaxhighlight>
 
 
 Code to validate the token.
 
-<pre>
+<syntaxhighlight lang="java">
 // HMAC key - Block serialization and storage as String in JVM memory
 private transient byte[] keyHMAC = ...;
 
@@ -160,22 +167,27 @@ private transient byte[] keyHMAC = ...;
 //Retrieve the user fingerprint from the dedicated cookie
 String userFingerprint = null;
 if (request.getCookies() != null && request.getCookies().length > 0) {
-	List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
-	Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
-	if (cookie.isPresent()) {
-		userFingerprint = cookie.get().getValue();
-	}
+ List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
+ Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
+ if (cookie.isPresent()) {
+   userFingerprint = cookie.get().getValue();
+ }
 }
+
+//Compute a SHA256 hash of the received fingerprint in cookie in order to compare to the fingerprint hash stored in the cookie
+MessageDigest digest = MessageDigest.getInstance("SHA-256");
+byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
 
 //Create a verification context for the token
 JWTVerifier verifier = JWT.require(Algorithm.HMAC256(keyHMAC))
-                               .withIssuer(issuerID)
-                               .withClaim("userFingerprint", userFingerprint)
-                               .build();
+                              .withIssuer(issuerID)
+                              .withClaim("userFingerprint", userFingerprintHash)
+                              .build();
 
 //Verify the token, if the verification fail then a exception is throwed
 DecodedJWT decodedToken = verifier.verify(token);
-</pre>
+</syntaxhighlight>
 
 == Token explicit revocation by the user ==
 
@@ -198,93 +210,93 @@ When the user want to "logout" then it call a dedicated service that will add th
 
 A database table with the following structure will used as central blacklist storage.
 
-<pre>
+<syntaxhighlight lang="sql">
 create table if not exists revoked_token(jwt_token_digest varchar(255) primary key, revokation_date timestamp default now());
-</pre>
+</syntaxhighlight>
 
 ==== Token revocation management ====
 
 Code in charge of adding a token to the blacklist and check if a token is revoked.
 
-<pre>
+<syntaxhighlight lang="java">
 /**
- * Handle the revokation of the token (logout).
- * Use a DB in order to allow multiple instances to check for revoked token and allow cleanup at centralized DB level.
- */
+* Handle the revokation of the token (logout).
+* Use a DB in order to allow multiple instances to check for revoked token and allow cleanup at centralized DB level.
+*/
 public class TokenRevoker {
 
-  /** DB Connection */
-  @Resource("jdbc/storeDS")
-  private DataSource storeDS;
+ /** DB Connection */
+ @Resource("jdbc/storeDS")
+ private DataSource storeDS;
 
-  /**
-   * Verify if a digest encoded in HEX of the ciphered token is present in the revokation table
-   *
-   * @param jwtInHex Token encoded in HEX
-   * @return Presence flag
-   * @throws Exception If any issue occur during communication with DB
-   */
-  public boolean isTokenRevoked(String jwtInHex) throws Exception {
-      boolean tokenIsPresent = false;
-      if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
-          //Decode the ciphered token
-          byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
+ /**
+  * Verify if a digest encoded in HEX of the ciphered token is present in the revokation table
+  *
+  * @param jwtInHex Token encoded in HEX
+  * @return Presence flag
+  * @throws Exception If any issue occur during communication with DB
+  */
+ public boolean isTokenRevoked(String jwtInHex) throws Exception {
+     boolean tokenIsPresent = false;
+     if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
+         //Decode the ciphered token
+         byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
 
-          //Compute a SHA256 of the ciphered token
-          MessageDigest digest = MessageDigest.getInstance("SHA-256");
-          byte[] cipheredTokenDigest = digest.digest(cipheredToken);
-          String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
+         //Compute a SHA256 of the ciphered token
+         MessageDigest digest = MessageDigest.getInstance("SHA-256");
+         byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+         String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
 
-          //Search token digest in HEX in DB
-          try (Connection con = this.storeDS.getConnection()) {
-              String query = "select jwt_token_digest from revoked_token where jwt_token_digest = ?";
-              try (PreparedStatement pStatement = con.prepareStatement(query)) {
-                  pStatement.setString(1, jwtTokenDigestInHex);
-                  try (ResultSet rSet = pStatement.executeQuery()) {
-                      tokenIsPresent = rSet.next();
-                  }
-              }
-          }
-      }
+         //Search token digest in HEX in DB
+         try (Connection con = this.storeDS.getConnection()) {
+             String query = "select jwt_token_digest from revoked_token where jwt_token_digest = ?";
+             try (PreparedStatement pStatement = con.prepareStatement(query)) {
+                 pStatement.setString(1, jwtTokenDigestInHex);
+                 try (ResultSet rSet = pStatement.executeQuery()) {
+                     tokenIsPresent = rSet.next();
+                 }
+             }
+         }
+     }
 
-      return tokenIsPresent;
-  }
+     return tokenIsPresent;
+ }
 
 
-  /**
-   * Add a digest encoded in HEX of the ciphered token to the revokation token table
-   *
-   * @param jwtInHex Token encoded in HEX
-   * @throws Exception If any issue occur during communication with DB
-   */
-  public void revokeToken(String jwtInHex) throws Exception {
-      if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
-          //Decode the ciphered token
-          byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
+ /**
+  * Add a digest encoded in HEX of the ciphered token to the revokation token table
+  *
+  * @param jwtInHex Token encoded in HEX
+  * @throws Exception If any issue occur during communication with DB
+  */
+ public void revokeToken(String jwtInHex) throws Exception {
+     if (jwtInHex != null && !jwtInHex.trim().isEmpty()) {
+         //Decode the ciphered token
+         byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
 
-          //Compute a SHA256 of the ciphered token
-          MessageDigest digest = MessageDigest.getInstance("SHA-256");
-          byte[] cipheredTokenDigest = digest.digest(cipheredToken);
-          String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
+         //Compute a SHA256 of the ciphered token
+         MessageDigest digest = MessageDigest.getInstance("SHA-256");
+         byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+         String jwtTokenDigestInHex = DatatypeConverter.printHexBinary(cipheredTokenDigest);
 
-          //Check if the token digest in HEX is already in the DB and add it if it is absent
-          if (!this.isTokenRevoked(jwtInHex)) {
-              try (Connection con = this.storeDS.getConnection()) {
-                  String query = "insert into revoked_token(jwt_token_digest) values(?)";
-                  int insertedRecordCount;
-                  try (PreparedStatement pStatement = con.prepareStatement(query)) {
-                      pStatement.setString(1, jwtTokenDigestInHex);
-                      insertedRecordCount = pStatement.executeUpdate();
-                  }
-                  if (insertedRecordCount != 1) {
-                      throw new IllegalStateException("Number of inserted record is invalid, 1 expected but is " + insertedRecordCount);
-                  }
-              }
-          }
+         //Check if the token digest in HEX is already in the DB and add it if it is absent
+         if (!this.isTokenRevoked(jwtInHex)) {
+             try (Connection con = this.storeDS.getConnection()) {
+                 String query = "insert into revoked_token(jwt_token_digest) values(?)";
+                 int insertedRecordCount;
+                 try (PreparedStatement pStatement = con.prepareStatement(query)) {
+                     pStatement.setString(1, jwtTokenDigestInHex);
+                     insertedRecordCount = pStatement.executeUpdate();
+                 }
+                 if (insertedRecordCount != 1) {
+                     throw new IllegalStateException("Number of inserted record is invalid, 1 expected but is " + insertedRecordCount);
+                 }
+             }
+         }
 
-      }
-  }
-</pre>
+     }
+ }
+</syntaxhighlight>
 
 
 == Token information disclosure ==
@@ -313,178 +325,178 @@ Here ciphering is added mainly to hide internal information but it's very import
 
 Database structure.
 
-<pre>
+<syntaxhighlight lang="sql">
 create table if not exists nonce(jwt_token_digest varchar(255) primary key, gcm_nonce varchar(255) not null unique, gcm_aad varchar(255) not null unique);
 create index if not exists idx_nonce on nonce(gcm_nonce);
-</pre>
+</syntaxhighlight>
 
 
 Code in charge of managing the ciphering.
 
-<pre>
+<syntaxhighlight lang="java">
 /**
- * Handle ciphering and deciphering of the token using AES-GCM.
- * Use a DB in order to link a GCM NONCE to a ciphered message and ensure that a NONCE is never reused
- * and also allow use of several application nodes in load balancing.
- */
+* Handle ciphering and deciphering of the token using AES-GCM.
+* Use a DB in order to link a GCM NONCE to a ciphered message and ensure that a NONCE is never reused
+* and also allow use of several application nodes in load balancing.
+*/
 public class TokenCipher {
 
-    /** AES-GCM parameters */
-    private static final int GCM_NONCE_LENGTH = 12; // in bytes
+   /** AES-GCM parameters */
+   private static final int GCM_NONCE_LENGTH = 12; // in bytes
 
-    /** AES-GCM parameters */
-    private static final int GCM_TAG_LENGTH = 16; // in bytes
+   /** AES-GCM parameters */
+   private static final int GCM_TAG_LENGTH = 16; // in bytes
 
-    /**Secure random generator */
-    private final SecureRandom secRandom = new SecureRandom();
+   /**Secure random generator */
+   private final SecureRandom secRandom = new SecureRandom();
 
-    /** DB Connection */
-    @Resource("jdbc/storeDS")
-    private DataSource storeDS;
+   /** DB Connection */
+   @Resource("jdbc/storeDS")
+   private DataSource storeDS;
 
-    /**
-     * Cipher a JWT
-     * @param jwt Token to cipher
-     * @param key Ciphering key
-     * @return The ciphered version of the token encoded in HEX
-     * @throws Exception If any issue occur during token ciphering operation
-     */
-    public String cipherToken(String jwt, byte[] key) throws Exception {
-        //Verify parameters
-        if(jwt == null || jwt.isEmpty() || key == null || key.length == 0){
-            throw new IllegalArgumentException("Both parameters must be specified !");
-        }
+   /**
+    * Cipher a JWT
+    * @param jwt Token to cipher
+    * @param key Ciphering key
+    * @return The ciphered version of the token encoded in HEX
+    * @throws Exception If any issue occur during token ciphering operation
+    */
+   public String cipherToken(String jwt, byte[] key) throws Exception {
+       //Verify parameters
+       if(jwt == null || jwt.isEmpty() || key == null || key.length == 0){
+           throw new IllegalArgumentException("Both parameters must be specified !");
+       }
 
-        //Generate a NONCE
-        //NOTE: As in the DB, the column to store the NONCE is flagged UNIQUE then the insert will fail
-        //if the NONCE already exists, normally as we use the Java Secure Random implementation
-        //it will never happen.
-        final byte[] nonce = new byte[GCM_NONCE_LENGTH];
-        secRandom.nextBytes(nonce);
+       //Generate a NONCE
+       //NOTE: As in the DB, the column to store the NONCE is flagged UNIQUE then the insert will fail
+       //if the NONCE already exists, normally as we use the Java Secure Random implementation
+       //it will never happen.
+       final byte[] nonce = new byte[GCM_NONCE_LENGTH];
+       secRandom.nextBytes(nonce);
 
-        //Prepare ciphering key from bytes provided
-        SecretKey aesKey = new SecretKeySpec(key, 0, key.length, "AES");
+       //Prepare ciphering key from bytes provided
+       SecretKey aesKey = new SecretKeySpec(key, 0, key.length, "AES");
 
-        //Setup Cipher
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
-        GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce);
-        cipher.init(Cipher.ENCRYPT_MODE, aesKey, spec);
+       //Setup Cipher
+       Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
+       GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce);
+       cipher.init(Cipher.ENCRYPT_MODE, aesKey, spec);
 
-        //Add "Additional Authentication Data" (AAD) in order to operate in AEAD mode - Generate it
-        byte[] aad = new byte[32];
-        secRandom.nextBytes(aad);
-        cipher.updateAAD(aad);
+       //Add "Additional Authentication Data" (AAD) in order to operate in AEAD mode - Generate it
+       byte[] aad = new byte[32];
+       secRandom.nextBytes(aad);
+       cipher.updateAAD(aad);
 
-        //Cipher the token
-        byte[] cipheredToken = cipher.doFinal(jwt.getBytes("utf-8"));
+       //Cipher the token
+       byte[] cipheredToken = cipher.doFinal(jwt.getBytes("utf-8"));
 
-        //Compute a SHA256 of the ciphered token
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+       //Compute a SHA256 of the ciphered token
+       MessageDigest digest = MessageDigest.getInstance("SHA-256");
+       byte[] cipheredTokenDigest = digest.digest(cipheredToken);
 
-        //Store GCM NONCE and GCM AAD
-        this.storeNonceAndAAD(DatatypeConverter.printHexBinary(nonce), DatatypeConverter.printHexBinary(aad),
-        DatatypeConverter.printHexBinary(cipheredTokenDigest));
+       //Store GCM NONCE and GCM AAD
+       this.storeNonceAndAAD(DatatypeConverter.printHexBinary(nonce), DatatypeConverter.printHexBinary(aad),
+       DatatypeConverter.printHexBinary(cipheredTokenDigest));
 
-        return DatatypeConverter.printHexBinary(cipheredToken);
-    }
+       return DatatypeConverter.printHexBinary(cipheredToken);
+   }
 
-    /**
-     * Decipher a JWT
-     * @param jwtInHex Token to decipher encoded in HEX
-     * @param key Ciphering key
-     * @return The token in clear text
-     * @throws Exception If any issue occur during token deciphering operation
-     */
-    public String decipherToken(String jwtInHex, byte[] key) throws Exception{
-        //Verify parameters
-        if(jwtInHex == null || jwtInHex.isEmpty() || key == null || key.length == 0){
-            throw new IllegalArgumentException("Both parameters must be specified !");
-        }
+   /**
+    * Decipher a JWT
+    * @param jwtInHex Token to decipher encoded in HEX
+    * @param key Ciphering key
+    * @return The token in clear text
+    * @throws Exception If any issue occur during token deciphering operation
+    */
+   public String decipherToken(String jwtInHex, byte[] key) throws Exception{
+       //Verify parameters
+       if(jwtInHex == null || jwtInHex.isEmpty() || key == null || key.length == 0){
+           throw new IllegalArgumentException("Both parameters must be specified !");
+       }
 
-        //Decode the ciphered token
-        byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
+       //Decode the ciphered token
+       byte[] cipheredToken = DatatypeConverter.parseHexBinary(jwtInHex);
 
-        //Compute a SHA256 of the ciphered token
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] cipheredTokenDigest = digest.digest(cipheredToken);
+       //Compute a SHA256 of the ciphered token
+       MessageDigest digest = MessageDigest.getInstance("SHA-256");
+       byte[] cipheredTokenDigest = digest.digest(cipheredToken);
 
-        //Read the GCM NONCE and GCM AAD associated from the DB
-        Map<String,String> gcmInfos = this.readNonceAndAAD(DatatypeConverter.printHexBinary(cipheredTokenDigest));
-        if(gcmInfos == null){
-            throw new Exception("Cannot found a NONCE and AAD associated to the token provided !");
-        }
-        byte[] nonce = DatatypeConverter.parseHexBinary(gcmInfos.get("NONCE"));
-        byte[] aad = DatatypeConverter.parseHexBinary(gcmInfos.get("AAD"));
+       //Read the GCM NONCE and GCM AAD associated from the DB
+       Map<String,String> gcmInfos = this.readNonceAndAAD(DatatypeConverter.printHexBinary(cipheredTokenDigest));
+       if(gcmInfos == null){
+           throw new Exception("Cannot found a NONCE and AAD associated to the token provided !");
+       }
+       byte[] nonce = DatatypeConverter.parseHexBinary(gcmInfos.get("NONCE"));
+       byte[] aad = DatatypeConverter.parseHexBinary(gcmInfos.get("AAD"));
 
-        //Prepare ciphering key from bytes provided
-        SecretKey aesKey = new SecretKeySpec(key, 0, key.length, "AES");
+       //Prepare ciphering key from bytes provided
+       SecretKey aesKey = new SecretKeySpec(key, 0, key.length, "AES");
 
-        //Setup Cipher
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
-        GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce);
-        cipher.init(Cipher.DECRYPT_MODE, aesKey, spec);
+       //Setup Cipher
+       Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", "SunJCE");
+       GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce);
+       cipher.init(Cipher.DECRYPT_MODE, aesKey, spec);
 
-        //Add "Additional Authentication Data" (AAD) in order to operate in AEAD mode
-        cipher.updateAAD(aad);
+       //Add "Additional Authentication Data" (AAD) in order to operate in AEAD mode
+       cipher.updateAAD(aad);
 
-        //Decipher the token
-        byte[] decipheredToken = cipher.doFinal(cipheredToken);
+       //Decipher the token
+       byte[] decipheredToken = cipher.doFinal(cipheredToken);
 
-        return new String(decipheredToken);
-    }
+       return new String(decipheredToken);
+   }
 
 
-    /**
-     * Store GCM NONCE and GCM AAD in the DB
-     * @param nonceInHex Nonce encoded in HEX
-     * @param aadInHex AAD encoded in HEX
-     * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX
-     * @throws Exception If any issue occur during communication with DB
-     */
-    private void storeNonceAndAAD(String nonceInHex, String aadInHex, String jwtTokenDigestInHex) throws Exception {
-        try (Connection con = this.storeDS.getConnection()) {
-            String query = "insert into nonce(jwt_token_digest, gcm_nonce, gcm_aad) values(?, ?, ?)";
-            int insertedRecordCount;
-            try (PreparedStatement pStatement = con.prepareStatement(query)) {
-                pStatement.setString(1, jwtTokenDigestInHex);
-                pStatement.setString(2, nonceInHex);
-                pStatement.setString(3, aadInHex);
-                insertedRecordCount = pStatement.executeUpdate();
-            }
-            if (insertedRecordCount != 1) {
-                throw new IllegalStateException("Number of inserted record is invalid, 1 expected but is " + insertedRecordCount);
-            }
-        }
-    }
+   /**
+    * Store GCM NONCE and GCM AAD in the DB
+    * @param nonceInHex Nonce encoded in HEX
+    * @param aadInHex AAD encoded in HEX
+    * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX
+    * @throws Exception If any issue occur during communication with DB
+    */
+   private void storeNonceAndAAD(String nonceInHex, String aadInHex, String jwtTokenDigestInHex) throws Exception {
+       try (Connection con = this.storeDS.getConnection()) {
+           String query = "insert into nonce(jwt_token_digest, gcm_nonce, gcm_aad) values(?, ?, ?)";
+           int insertedRecordCount;
+           try (PreparedStatement pStatement = con.prepareStatement(query)) {
+               pStatement.setString(1, jwtTokenDigestInHex);
+               pStatement.setString(2, nonceInHex);
+               pStatement.setString(3, aadInHex);
+               insertedRecordCount = pStatement.executeUpdate();
+           }
+           if (insertedRecordCount != 1) {
+               throw new IllegalStateException("Number of inserted record is invalid, 1 expected but is " + insertedRecordCount);
+           }
+       }
+   }
 
-    /**
-     * Read GCM NONCE and GCM AAD from the DB
-     * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX for which we must read the NONCE and AAD
-     * @return A dict containing the NONCE and AAD if they exists for the specified token
-     * @throws Exception If any issue occur during communication with DB
-     */
-    private  Map<String,String> readNonceAndAAD(String jwtTokenDigestInHex) throws Exception{
-        Map<String,String> gcmInfos = null;
-        try (Connection con = this.storeDS.getConnection()) {
-            String query = "select gcm_nonce, gcm_aad from nonce where jwt_token_digest = ?";
-            try (PreparedStatement pStatement = con.prepareStatement(query)) {
-                pStatement.setString(1, jwtTokenDigestInHex);
-                try (ResultSet rSet = pStatement.executeQuery()) {
-                    while (rSet.next()) {
-                        gcmInfos = new HashMap<>(2);
-                        gcmInfos.put("NONCE", rSet.getString(1));
-                        gcmInfos.put("AAD", rSet.getString(2));
-                    }
-                }
-            }
-        }
+   /**
+    * Read GCM NONCE and GCM AAD from the DB
+    * @param jwtTokenDigestInHex SHA256 of the JWT ciphered token encoded in HEX for which we must read the NONCE and AAD
+    * @return A dict containing the NONCE and AAD if they exists for the specified token
+    * @throws Exception If any issue occur during communication with DB
+    */
+   private  Map<String,String> readNonceAndAAD(String jwtTokenDigestInHex) throws Exception{
+       Map<String,String> gcmInfos = null;
+       try (Connection con = this.storeDS.getConnection()) {
+           String query = "select gcm_nonce, gcm_aad from nonce where jwt_token_digest = ?";
+           try (PreparedStatement pStatement = con.prepareStatement(query)) {
+               pStatement.setString(1, jwtTokenDigestInHex);
+               try (ResultSet rSet = pStatement.executeQuery()) {
+                   while (rSet.next()) {
+                       gcmInfos = new HashMap<>(2);
+                       gcmInfos.put("NONCE", rSet.getString(1));
+                       gcmInfos.put("AAD", rSet.getString(2));
+                   }
+               }
+           }
+       }
 
-        return gcmInfos;
-    }
+       return gcmInfos;
+   }
 
 }
-</pre>
+</syntaxhighlight>
 
 ==== Creation / Validation of the token ====
 
@@ -492,7 +504,7 @@ Use of the token ciphering during the creation and the validation of the token.
 
 Load keys and setup cipher.
 
-<pre>
+<syntaxhighlight lang="java">
 //Load keys from configuration text files in order to avoid to store keys as String in JVM memory
 private transient byte[] keyHMAC = Files.readAllBytes(Paths.get("key-hmac.txt"));
 private transient byte[] keyCiphering = Files.readAllBytes(Paths.get("key-ciphering.txt"));
@@ -502,141 +514,157 @@ private transient String issuerID = Files.readAllLines(Paths.get("issuer-id.txt"
 
 //Init token ciphering handler
 TokenCipher tokenCipher = new TokenCipher();
-</pre>
+</syntaxhighlight>
 
 Token creation.
 
-<pre>
-  //Generate a random string that will constitute the fingerprint for this user
-  byte[] randomFgp = new byte[50];
-  this.secureRandom.nextBytes(randomFgp);
-  String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
+<syntaxhighlight lang="java">
+ //Generate a random string that will constitute the fingerprint for this user
+ byte[] randomFgp = new byte[50];
+ this.secureRandom.nextBytes(randomFgp);
+ String userFingerprint = DatatypeConverter.printHexBinary(randomFgp);
 
-  //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
-  String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
-  response.addHeader("Set-Cookie", fingerprintCookie);
+ //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
+ String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
+ response.addHeader("Set-Cookie", fingerprintCookie);
 
-  //Create the token with a validity of 15 minutes and client context (fingerprint) information
-  Calendar c = Calendar.getInstance();
-  Date now = c.getTime();
-  c.add(Calendar.MINUTE, 15);
-  Date expirationDate = c.getTime();
-  Map<String, Object> headerClaims = new HashMap<>();
-  headerClaims.put("typ", "JWT");
-  String token = JWT.create().withSubject(login)
-  		.withExpiresAt(expirationDate)
-  		.withIssuer(this.issuerID)
-  		.withIssuedAt(now)
-  		.withNotBefore(now)
-  		.withClaim("userFingerprint", userFingerprint)
-  		.withHeader(headerClaims)
-  		.sign(Algorithm.HMAC256(this.keyHMAC));
+ //Compute a SHA256 hash of the fingerprint in order to store the fingerprint hash (instead of the raw value) in the token
+ //to prevent an XSS to be able to read the fingerprint and set the expected cookie itself
+ MessageDigest digest = MessageDigest.getInstance("SHA-256");
+ byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+ String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
+
+ //Create the token with a validity of 15 minutes and client context (fingerprint) information
+ Calendar c = Calendar.getInstance();
+ Date now = c.getTime();
+ c.add(Calendar.MINUTE, 15);
+ Date expirationDate = c.getTime();
+ Map<String, Object> headerClaims = new HashMap<>();
+ headerClaims.put("typ", "JWT");
+ String token = JWT.create().withSubject(login)
+     .withExpiresAt(expirationDate)
+     .withIssuer(this.issuerID)
+     .withIssuedAt(now)
+     .withNotBefore(now)
+     .withClaim("userFingerprint", userFingerprintHash)
+     .withHeader(headerClaims)
+     .sign(Algorithm.HMAC256(this.keyHMAC));
 //Cipher the token
 String cipheredToken = tokenCipher.cipherToken(token, keyCiphering);
-</pre>
+</syntaxhighlight>
 
 Token validation.
 
-<pre>
+<syntaxhighlight lang="java">
 //Decipher the token
 String token = tokenCipher.decipherToken(cipheredToken, keyCiphering);
 
 //Retrieve the user fingerprint from the dedicated cookie
 String userFingerprint = null;
 if (request.getCookies() != null && request.getCookies().length > 0) {
-	List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
-	Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
-	if (cookie.isPresent()) {
-		userFingerprint = cookie.get().getValue();
-	}
+ List<Cookie> cookies = Arrays.stream(request.getCookies()).collect(Collectors.toList());
+ Optional<Cookie> cookie = cookies.stream().filter(c -> "__Secure-Fgp".equals(c.getName())).findFirst();
+ if (cookie.isPresent()) {
+   userFingerprint = cookie.get().getValue();
+ }
 }
+
+//Compute a SHA256 hash of the received fingerprint in cookie in order to compare to the fingerprint hash stored in the cookie
+MessageDigest digest = MessageDigest.getInstance("SHA-256");
+byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
 
 //Decipher the token
 String token = this.tokenCipher.decipherToken(cipheredToken, this.keyCiphering);
 //Create a verification context for the token
 JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
-		.withIssuer(this.issuerID)
-		.withClaim("userFingerprint", userFingerprint)
-		.build();
+   .withIssuer(this.issuerID)
+   .withClaim("userFingerprint", userFingerprintHash)
+   .build();
 
 //Verify the token, if the verification fail then a exception is throwed
 DecodedJWT decodedToken = verifier.verify(token);
-</pre>
+</syntaxhighlight>
 
 == Token storage on client side ==
 
 === Symptom ===
 
-It's occur when a application store the token in a way allowing this one:
+It's occur when a application store the token in a way allowing this one to be:
 
-* To be automatically sent by the browser (''Cookie'' storage).
-* To be retrieved even if the browser is restarted (Use of browser ''localStorage'' container).
+* Automatically sent by the browser (''Cookie'' storage).
+* Retrieved even if the browser is restarted (Use of browser ''localStorage'' container).
+* Retrieved in case of [[XSS_(Cross_Site_Scripting)_Prevention_Cheat_Sheet|XSS]] issue (Cookie accessible to JavaScript code or Token stored in browser local/session storage). 
 
 === How to prevent ===
 
-Store the token using the browser ''sessionStorage'' container and add it as a ''Bearer'' with JavaScript when calling services.
+# Store the token using the browser ''sessionStorage'' container.
+# Add it as a ''Bearer'' with JavaScript when calling services.
+# Add [[#Token sidejacking|fingerprint]] information to the token.
 
-By storing the token in browser ''sessionStorage'' container it expose the token to be steal in case of XSS issue. To tackle this point and make it more harden to exfiltrate in case of XSS issue, a browser [[OWASP_Secure_Headers_Project#csp|Content Security Policy]] must be added.
+By storing the token in browser ''sessionStorage'' container it expose the token to be steal in case of XSS issue. However, fingerprint added to the token prevent reuse of the stolen token by the attacker on his machine. To close a maximum of exploitation surfaces for an attacker, add a browser [[OWASP_Secure_Headers_Project#csp|Content Security Policy]] to harden the execution context.
 
 ''Note:''
-It's also possible to implements the authentication service in a way that the token is issued within a hardened cookie, but in this case, a protection against [[Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet|Cross-Site Request Forgery]] attack must be implemented.
+
+* The remaining case is when a attacker use the user browsing context as a proxy to use the target application through the legitimate user but the Content Security Policy can prevent communication with non expected domains.
+* It's also possible to implements the authentication service in a way that the token is issued within a hardened cookie, but in this case, a protection against [[Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet|Cross-Site Request Forgery]] attack must be implemented.
 
 === Implementation example ===
 
 
 JavaScript code to store the token after authentication.
 
-<pre>
-  /* Handle request for JWT token and local storage*/
-  function getToken(){
-      var login = $("#login").val();
-      var postData = "login=" + encodeURIComponent(login) + "&password=test";
+<syntaxhighlight lang="javascript">
+ /* Handle request for JWT token and local storage*/
+ function getToken(){
+     var login = $("#login").val();
+     var postData = "login=" + encodeURIComponent(login) + "&password=test";
 
-      $.post("/services/authenticate", postData,function (data){
-          if(data.status == "Authentication successful !"){
-              ...
-              sessionStorage.setItem("token", data.token);
-          }else{
-              ...
-              sessionStorage.removeItem("token");
-          }
-      })
-      .fail(function(jqXHR, textStatus, error){
-              ...
-          sessionStorage.removeItem("token");
-      });
-  }
-</pre>
+     $.post("/services/authenticate", postData,function (data){
+         if(data.status == "Authentication successful !"){
+             ...
+             sessionStorage.setItem("token", data.token);
+         }else{
+             ...
+             sessionStorage.removeItem("token");
+         }
+     })
+     .fail(function(jqXHR, textStatus, error){
+             ...
+         sessionStorage.removeItem("token");
+     });
+ }
+</syntaxhighlight>
 
 JavaScript code to add the token as ''Bearer'' when calling a service, for example a service to validate token here.
 
-<pre>
-  /* Handle request for JWT token validation */
-  function validateToken(){
-      var token = sessionStorage.getItem("token");
+<syntaxhighlight lang="javascript">
+ /* Handle request for JWT token validation */
+ function validateToken(){
+     var token = sessionStorage.getItem("token");
 
-      if(token == undefined || token == ""){
-          $("#infoZone").removeClass();
-          $("#infoZone").addClass("alert alert-warning");
-          $("#infoZone").text("Obtain a JWT token first :)");
-          return;
-      }
+     if(token == undefined || token == ""){
+         $("#infoZone").removeClass();
+         $("#infoZone").addClass("alert alert-warning");
+         $("#infoZone").text("Obtain a JWT token first :)");
+         return;
+     }
 
-      $.ajax({
-          url: "/services/validate",
-          type: "POST",
-          beforeSend: function(xhr) {
-              xhr.setRequestHeader("Authorization", "bearer " + token);
-          },
-          success: function(data) {
-            ...
-          },
-          error: function(jqXHR, textStatus, error) {
-            ...
-          },
-      });
-  }
-</pre>
+     $.ajax({
+         url: "/services/validate",
+         type: "POST",
+         beforeSend: function(xhr) {
+             xhr.setRequestHeader("Authorization", "bearer " + token);
+         },
+         success: function(data) {
+           ...
+         },
+         error: function(jqXHR, textStatus, error) {
+           ...
+         },
+     });
+ }
+</syntaxhighlight>
 
 
 == Token weak secret ==
@@ -667,42 +695,42 @@ Password dictionaries can be found for example [https://wiki.skullsecurity.org/P
 
 Code in charge of testing a secret against a JWT token test base.
 
-<pre>
-  /**
-  * Test if a secret match the secret used to sign the token
-  *
-  * @param token Source JWT token (test base)
-  * @param secret Secret to test
-  * @return The token decoded if the secret matche otherwise return null
-  */
+<syntaxhighlight lang="java">
+ /**
+ * Test if a secret match the secret used to sign the token
+ *
+ * @param token Source JWT token (test base)
+ * @param secret Secret to test
+ * @return The token decoded if the secret matche otherwise return null
+ */
 private DecodedJWT checkSecret(String token, String secret) {
-      DecodedJWT t = null;
-      try {
-          Algorithm algorithm = Algorithm.HMAC256(secret);
-          JWTVerifier verifier = JWT.require(algorithm).build();
-          t = verifier.verify(token);
-      } catch (JWTVerificationException | UnsupportedEncodingException e) {
-          //ignore...
-      }
-      return t;
-  }
-</pre>
+     DecodedJWT t = null;
+     try {
+         Algorithm algorithm = Algorithm.HMAC256(secret);
+         JWTVerifier verifier = JWT.require(algorithm).build();
+         t = verifier.verify(token);
+     } catch (JWTVerificationException | UnsupportedEncodingException e) {
+         //ignore...
+     }
+     return t;
+ }
+</syntaxhighlight>
 
 Code snippet to evaluate the token test base on the secret dictionary.
 
-<pre>
+<syntaxhighlight lang="java">
 final String tokenTestBase = ...;
 final String[] secret = new String[1];
 final DecodedJWT[] decodedToken = new DecodedJWT[1];
 List<String> secrets = Files.readAllLines(Paths.get("secrets-dictionary.txt"));
 secrets.parallelStream().forEach(s -> {
-	DecodedJWT tentative = checkSecret(tokenTestBase, s);
-	if (tentative != null) {
-		secret[0] = s;
-		decodedToken[0] = tentative;
-	}
+ DecodedJWT tentative = checkSecret(tokenTestBase, s);
+ if (tentative != null) {
+   secret[0] = s;
+   decodedToken[0] = tentative;
+ }
 });
-</pre>
+</syntaxhighlight>
 
 === Use dedicated tools ===
 

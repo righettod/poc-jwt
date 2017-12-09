@@ -27,6 +27,7 @@ import javax.xml.bind.DatatypeConverter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -128,6 +129,11 @@ public class TokenServices {
                 //Add the fingerprint in a hardened cookie - Add cookie manually because SameSite attribute is not supported by javax.servlet.http.Cookie class
                 String fingerprintCookie = "__Secure-Fgp=" + userFingerprint + "; SameSite=Strict; HttpOnly; Secure";
                 response.addHeader("Set-Cookie", fingerprintCookie);
+                //Compute a SHA256 hash of the fingerprint in order to store the fingerprint hash (instead of the raw value) in the token
+                //to prevent an XSS to be able to read the fingerprint and set the expected cookie itself
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+                String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
                 //Create the token with a validity of 15 minutes and client context (fingerprint) information
                 Calendar c = Calendar.getInstance();
                 Date now = c.getTime();
@@ -140,7 +146,7 @@ public class TokenServices {
                         .withIssuer(this.issuerID)
                         .withIssuedAt(now)
                         .withNotBefore(now)
-                        .withClaim("userFingerprint", userFingerprint)
+                        .withClaim("userFingerprint", userFingerprintHash)
                         .withHeader(headerClaims)
                         .sign(Algorithm.HMAC256(this.keyHMAC));
                 //Cipher the token
@@ -208,13 +214,18 @@ public class TokenServices {
                 }
 
                 //Validate the userFingerprint and token parameters content to avoid malicious input
+                System.out.println("FGP ===>" + userFingerprint);
                 if (userFingerprint != null && Pattern.matches("[A-Z0-9]{100}", userFingerprint)) {
                     //Decipher the token
                     String token = this.tokenCipher.decipherToken(cipheredToken, this.keyCiphering);
+                    //Compute a SHA256 hash of the received fingerprint in cookie in order to compare to the fingerprint hash stored in the cookie
+                    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                    byte[] userFingerprintDigest = digest.digest(userFingerprint.getBytes("utf-8"));
+                    String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
                     //Create a verification context for the token
                     JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
                             .withIssuer(this.issuerID)
-                            .withClaim("userFingerprint", userFingerprint)
+                            .withClaim("userFingerprint", userFingerprintHash)
                             .build();
                     //Verify the token
                     DecodedJWT decodedToken = verifier.verify(token);
