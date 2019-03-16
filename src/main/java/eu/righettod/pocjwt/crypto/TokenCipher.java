@@ -9,7 +9,7 @@ import javax.xml.bind.DatatypeConverter;
 
 /**
  * Handle ciphering and deciphering of the token using AES-GCM.
- *
+ * <p>
  * Use Google TINK to handle ciphering operations in order to use crypto built-in best practices provided by this library.
  *
  * @see "https://github.com/google/tink/blob/master/docs/JAVA-HOWTO.md"
@@ -19,14 +19,11 @@ import javax.xml.bind.DatatypeConverter;
 public class TokenCipher {
 
     /**
-     * Constructor - Load DB Driver and Register AEAD configuration
+     * Constructor - Register AEAD configuration
      *
-     * @throws Exception If any issue occur during DB driver loading or AEAD configuration registration
+     * @throws Exception If any issue occur during AEAD configuration registration
      */
     public TokenCipher() throws Exception {
-        //FIXME: I use this way for the POC because I cannot achieve
-        // to make the Datasource injection using @Resource run with the embedded Tomcat.
-        Class.forName("org.h2.Driver");
         AeadConfig.register();
     }
 
