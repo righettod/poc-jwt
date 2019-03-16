@@ -16,7 +16,7 @@
             <version>3.1.0</version>
             <scope>provided</scope>
         </dependency>
-        <!-- For GCM NONCE storage -->
+        <!-- For token revoke storage -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -59,6 +59,12 @@
             <groupId>com.sun.jersey</groupId>
             <artifactId>jersey-core</artifactId>
             <version>1.19</version>
+        </dependency>
+        <!-- For ciphering -->
+        <dependency>
+            <groupId>com.google.crypto.tink</groupId>
+            <artifactId>tink</artifactId>
+            <version>1.2.2</version>
         </dependency>
     </dependencies>
 

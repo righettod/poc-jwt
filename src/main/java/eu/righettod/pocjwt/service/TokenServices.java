@@ -5,6 +5,9 @@ import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTVerificationException;
 import com.auth0.jwt.interfaces.DecodedJWT;
+import com.google.crypto.tink.CleartextKeysetHandle;
+import com.google.crypto.tink.JsonKeysetReader;
+import com.google.crypto.tink.KeysetHandle;
 import eu.righettod.pocjwt.crypto.TokenCipher;
 import eu.righettod.pocjwt.management.TokenRevoker;
 import org.json.JSONObject;
@@ -24,7 +27,6 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.xml.bind.DatatypeConverter;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
@@ -59,9 +61,9 @@ public class TokenServices {
     private transient byte[] keyHMAC = null;
 
     /**
-     * Accessor for Ciphering key - Block serialization and storage as String in JVM memory
+     * Accessor for Ciphering key - Block serialization
      */
-    private transient byte[] keyCiphering = null;
+    private transient KeysetHandle keyCiphering = null;
 
     /**
      * Accessor for Issuer ID - Block serialization
@@ -86,13 +88,12 @@ public class TokenServices {
     /**
      * Constructor - Load keys and issuer ID
      *
-     * @throws IOException            If any issue occur during keys loading
-     * @throws ClassNotFoundException If any issue occur during DB driver loading
+     * @throws Exception If any issue occur during keys loading or DB driver loading
      */
-    public TokenServices() throws IOException, ClassNotFoundException {
-        //Load keys from configuration text files in order to avoid to store keys as String in JVM memory
+    public TokenServices() throws Exception {
+        //Load keys from configuration text/json files in order to avoid to store keys as String in JVM memory
         this.keyHMAC = Files.readAllBytes(Paths.get("src", "main", "conf", "key-hmac.txt"));
-        this.keyCiphering = Files.readAllBytes(Paths.get("src", "main", "conf", "key-ciphering.txt"));
+        this.keyCiphering = CleartextKeysetHandle.read(JsonKeysetReader.withFile(Paths.get("src", "main", "conf", "key-ciphering.json").toFile()));
 
         //Load issuer ID from configuration text file
         this.issuerID = Files.readAllLines(Paths.get("src", "main", "conf", "issuer-id.txt")).get(0);
@@ -142,13 +143,13 @@ public class TokenServices {
                 Map<String, Object> headerClaims = new HashMap<>();
                 headerClaims.put("typ", "JWT");
                 String token = JWT.create().withSubject(login)
-                        .withExpiresAt(expirationDate)
-                        .withIssuer(this.issuerID)
-                        .withIssuedAt(now)
-                        .withNotBefore(now)
-                        .withClaim("userFingerprint", userFingerprintHash)
-                        .withHeader(headerClaims)
-                        .sign(Algorithm.HMAC256(this.keyHMAC));
+                                       .withExpiresAt(expirationDate)
+                                       .withIssuer(this.issuerID)
+                                       .withIssuedAt(now)
+                                       .withNotBefore(now)
+                                       .withClaim("userFingerprint", userFingerprintHash)
+                                       .withHeader(headerClaims)
+                                       .sign(Algorithm.HMAC256(this.keyHMAC));
                 //Cipher the token
                 String cipheredToken = this.tokenCipher.cipherToken(token, this.keyCiphering);
                 //Set token in data container
@@ -214,7 +215,7 @@ public class TokenServices {
                 }
 
                 //Validate the userFingerprint and token parameters content to avoid malicious input
-                System.out.println("FGP ===>" + userFingerprint);
+                System.out.println("FGP ===> " + userFingerprint);
                 if (userFingerprint != null && Pattern.matches("[A-Z0-9]{100}", userFingerprint)) {
                     //Decipher the token
                     String token = this.tokenCipher.decipherToken(cipheredToken, this.keyCiphering);
@@ -224,9 +225,9 @@ public class TokenServices {
                     String userFingerprintHash = DatatypeConverter.printHexBinary(userFingerprintDigest);
                     //Create a verification context for the token
                     JWTVerifier verifier = JWT.require(Algorithm.HMAC256(this.keyHMAC))
-                            .withIssuer(this.issuerID)
-                            .withClaim("userFingerprint", userFingerprintHash)
-                            .build();
+                                                   .withIssuer(this.issuerID)
+                                                   .withClaim("userFingerprint", userFingerprintHash)
+                                                   .build();
                     //Verify the token
                     DecodedJWT decodedToken = verifier.verify(token);
                     //Set token in data container
